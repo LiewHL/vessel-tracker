@@ -48,8 +48,11 @@ def clean_digits(value):
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
-def load_roster():
-    """Read vessels.csv. Rows without an id are skipped."""
+def load_roster(include_standby=False):
+    """Read vessels.csv. Rows without an id are skipped.
+
+    Rows with neither MMSI nor IMO are standby places (no vessel assigned yet). They are left out
+    unless include_standby is True; then each row has "standby": True/False."""
     rows = []
     with open(ROSTER, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -58,6 +61,9 @@ def load_roster():
                 continue
             row["mmsi"] = clean_digits(row.get("mmsi"))
             row["imo"] = clean_digits(row.get("imo"))
+            row["standby"] = not row["mmsi"] and not row["imo"]
+            if row["standby"] and not include_standby:
+                continue
             rows.append(row)
     return rows
 

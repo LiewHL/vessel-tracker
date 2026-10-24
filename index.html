@@ -125,7 +125,9 @@
   table.ships td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   table.ships tbody tr { cursor:pointer; }
   table.ships tbody tr:hover { background:color-mix(in srgb, var(--sel) 60%, transparent); }
-  table.ships tbody tr.grp { cursor:default; }
+  table.ships tbody tr.grp, table.ships tbody tr.sbrow { cursor:default; }
+  table.ships tbody tr.sbrow td { padding-top:4px; padding-bottom:4px; color:var(--muted); }
+  table.ships tbody tr.sbrow:hover { background:none; }
   table.ships tbody tr.grp:hover { background:none; }
   table.ships tbody tr.grp td { background:var(--bg); padding:0; border-bottom:1px solid var(--line); }
   .gbtn { all:unset; box-sizing:border-box; cursor:pointer; display:flex; gap:7px; align-items:center; width:100%; padding:8px; font-size:12px; }
@@ -268,7 +270,7 @@
   const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
   const MODES = { fleet:'Fleet map', route:'Vessel route / history', live:'Live (VesselFinder)', timeline:'Timeline (periods)' };
 
-  let vessels = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
+  let vessels = [], standby = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
   let filter = 'all', catFilter = '', query = '', sortKey = '', sortDir = 1, selectedId = '';
   const store = {
     get(k, d) { try { const v = localStorage.getItem('vt-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -596,19 +598,28 @@
       const x = a[sortKey] ?? '', y = b[sortKey] ?? '';
       return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric:true })) * sortDir;
     });
-    $('count').textContent = list.length === vessels.length ? `${list.length} vessels` : `${list.length} of ${vessels.length}`;
+    const qq = query.toLowerCase();
+    const sb = filter !== 'all' ? [] : standby.filter(v => (!catFilter || (catFilter === '__none' ? !v.category : v.category === catFilter)) &&
+      (!qq || [v.id, v.category, 'standby'].join(' ').toLowerCase().includes(qq)));
+    $('count').textContent = (list.length === vessels.length ? `${list.length} vessels` : `${list.length} of ${vessels.length}`) + (standby.length ? ` · ${standby.length} standby` : '');
     let html;
-    if (!list.length) html = `<tr><td colspan="7" class="sub" style="text-align:center;padding:20px">No vessels match.</td></tr>`;
+    if (!list.length && !sb.length) html = `<tr><td colspan="7" class="sub" style="text-align:center;padding:20px">No vessels match.</td></tr>`;
     else if (!catOrder.length) html = list.map(rowHTML).join('');
     else {
       const groups = new Map();
       list.forEach(v => { const c = catOf(v); if (!groups.has(c)) groups.set(c, []); groups.get(c).push(v); });
+      const sbg = new Map();
+      sb.forEach(v => { const c = catOf(v); if (!groups.has(c)) groups.set(c, []); if (!sbg.has(c)) sbg.set(c, []); sbg.get(c).push(v); });
       const searching = !!query.trim();
       html = [...groups.keys()].sort((a, b) => catCompare(a, b, defaultCat)).map(c => {
-        const vs = groups.get(c), open = searching || openCats.has(c), recent = vs.filter(v => v._state === 'fresh').length;
+        const vs = groups.get(c), ss = sbg.get(c) || [], open = searching || openCats.has(c), recent = vs.filter(v => v._state === 'fresh').length;
         const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
+        const parts = [];
+        if (vs.length) parts.push(`${vs.length} ship${vs.length === 1 ? '' : 's'}`, `${recent} seen in last 3 days`);
+        if (ss.length) parts.push(`${ss.length} standby`);
         return `<tr class="grp"><td colspan="7"><button class="gbtn" data-cat="${esc(c)}" aria-expanded="${open}"><span class="caret" aria-hidden="true">▸</span>${dot}<b>${esc(c)}</b>
-          <span class="sub">· ${vs.length} ship${vs.length === 1 ? '' : 's'} · ${recent} seen in last 3 days</span></button></td></tr>` + (open ? vs.map(rowHTML).join('') : '');
+          <span class="sub">· ${parts.join(' · ')}</span></button></td></tr>` +
+          (open ? vs.map(rowHTML).join('') + ss.map(v => `<tr class="sbrow"><td class="idc">${esc(v.id)}</td><td colspan="6" class="sub">Standby · no vessel assigned yet</td></tr>`).join('') : '');
       }).join('');
     }
     $('rows').innerHTML = html;
@@ -890,7 +901,11 @@
     let csv;
     try { csv = await getText('vessels.csv'); }
     catch (e) { banner('Could not load <b>vessels.csv</b>. Open this page through its GitHub Pages link (https://&lt;username&gt;.github.io/&lt;project&gt;/), not as a file on your computer.'); $('runPill').textContent = 'No data'; return; }
-    vessels = parseCSV(csv).filter(v => v.id);
+    // Rows with neither MMSI nor IMO are standby places (no vessel assigned yet): listed, never tracked.
+    const allRows = parseCSV(csv).filter(v => v.id), digits = x => String(x || '').replace(/\D/g, '');
+    standby = allRows.filter(v => !digits(v.mmsi) && !digits(v.imo));
+    vessels = allRows.filter(v => !standby.includes(v));
+    standby.forEach(v => { v.category = (v.category || '').trim(); });
     let run, reports;
     [latest, run, reports, ports] = await Promise.all([getJSON('data/latest.json', {}), getJSON('data/run_log.json', null),
       getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || []),
@@ -907,7 +922,8 @@
       v._att = period(v).n;
     });
     vessels.sort((a, b) => order[a._state] - order[b._state] || a.id.localeCompare(b.id, undefined, { numeric:true }));
-    defaultCat = latestCat([...new Set(vessels.map(catOf))]);
+    standby.forEach(v => { if (v.category && !catOrder.includes(v.category)) catOrder.push(v.category); });
+    defaultCat = latestCat([...new Set(vessels.concat(standby).map(catOf))]);
     openCats = new Set(defaultCat ? [defaultCat] : []);
     selectedId = (vessels.find(v => latest[v.id] && catOf(v) === defaultCat) || vessels.find(v => latest[v.id]) || vessels[0] || {}).id || '';
 

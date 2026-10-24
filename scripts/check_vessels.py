@@ -24,7 +24,7 @@ def imo_ok(imo):
 
 
 def check(path=ROSTER):
-    problems, warnings = [], []
+    problems, warnings, standby = [], [], []
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         cols = [c.strip() for c in reader.fieldnames or []]
@@ -45,6 +45,9 @@ def check(path=ROSTER):
             else:
                 ids[vid] = n
             mmsi, imo = re.sub(r"\D", "", row.get("mmsi", "")), re.sub(r"\D", "", row.get("imo", ""))
+            if not mmsi and not imo:        # standby place: no vessel assigned yet
+                standby.append(vid)
+                continue
             if len(mmsi) != 9:
                 problems.append(f"{who}: MMSI '{row.get('mmsi', '')}' must be 9 digits (needed for logging).")
             elif not flag_of(mmsi):
@@ -64,11 +67,11 @@ def check(path=ROSTER):
                         problems.append(f"{who}: {label} '{val}' must be written as YYYY-MM-DD.")
             if ds and de and de < ds:
                 problems.append(f"{who}: end_date is before start_date.")
-    return problems, warnings
+    return problems, warnings, standby
 
 
 def main():
-    problems, warnings = check()
+    problems, warnings, standby = check()
     if "--email" in sys.argv and (problems or warnings):
         import notify
         body = []
@@ -78,7 +81,7 @@ def main():
             body += ["Worth checking:", *[f"- {w}" for w in warnings], ""]
         body.append("Edit vessels.csv on GitHub (pencil icon), then save. This check runs again automatically.")
         notify.send(f"Vessel list check: {len(problems)} problem(s), {len(warnings)} to check", "\n".join(body))
-    print(f"vessels.csv: {len(problems)} problem(s), {len(warnings)} warning(s).")
+    print(f"vessels.csv: {len(problems)} problem(s), {len(warnings)} warning(s), {len(standby)} standby place(s).")
     if problems and os.environ.get("GITHUB_ACTIONS"):
         print(f"::error::vessels.csv has {len(problems)} problem(s); details were emailed.")
     return 1 if problems else 0

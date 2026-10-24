@@ -182,7 +182,8 @@ def build(kind="weekly", ref=None, month=None):
     today = ref.astimezone(SGT).date()
     soon_end, soon_start = upcoming_changes(roster, today, 14)
     alerts = [a for a in read_json(ALERT_LOG, []) if start <= (parse_iso(a.get("t")) or start) <= as_of]
-    ctx = {"roster": roster, "today": today, "start": start, "soon_end": soon_end, "soon_start": soon_start,
+    standby = [v for v in load_roster(include_standby=True) if v["standby"]]
+    ctx = {"roster": roster, "standby": standby, "today": today, "start": start, "soon_end": soon_end, "soon_start": soon_start,
            "alerts": alerts}
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -374,6 +375,13 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         <td class="num">{r['dist']:.0f}</td>
       </tr>""")
 
+    for v in ctx.get("standby", []):
+        cat = (v.get("category") or "").strip() or "No category"
+        g = groups.setdefault(cat, {"rows": [], "heard": 0})
+        g["sb"] = g.get("sb", 0) + 1
+        g.setdefault("sbrows", []).append(
+            f'<tr class="sb"><td><b>{e(v["id"])}</b></td><td colspan="8" class="sub">Standby · no vessel assigned yet</td></tr>')
+
     follow = ""
     if follow_up:
         items = "".join(f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}{' (' + e(v['company']) + ')' if v.get('company') else ''}</li>" for v in follow_up)
@@ -415,11 +423,17 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
              f'<th>{e(last_head)}</th>{extra_head}<th class="num">Days heard</th><th class="num">Positions</th>'
              f'<th class="num">Distance (nm)</th></tr></thead>')
     open_cat = latest_category(groups.keys())
+    def grp_summary(g):
+        parts = []
+        if g["rows"]:
+            parts += [f'{len(g["rows"])} ship{"s" if len(g["rows"]) != 1 else ""}', f'{g["heard"]} heard this {w}']
+        if g.get("sb"):
+            parts.append(f'{g["sb"]} standby')
+        return " · ".join(parts)
     groups_html = "".join(
         f'<details class="grp"{" open" if cat == open_cat else ""}>'
-        f'<summary><b>{e(cat)}</b> <span class="sub">· {len(g["rows"])} ship{"s" if len(g["rows"]) != 1 else ""}'
-        f' · {g["heard"]} heard this {w}</span></summary>'
-        f'<div class="tablewrap"><table>{thead}<tbody>{"".join(g["rows"])}</tbody></table></div></details>'
+        f'<summary><b>{e(cat)}</b> <span class="sub">· {e(grp_summary(g))}</span></summary>'
+        f'<div class="tablewrap"><table>{thead}<tbody>{"".join(g["rows"] + g.get("sbrows", []))}</tbody></table></div></details>'
         for cat, g in sorted(groups.items(), key=lambda kv: category_rank(kv[0], open_cat)))
     # timeline (monthly + quarterly): ships whose period overlaps a window around the report period
     timeline = ""
@@ -483,6 +497,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
   .vbtn {{ font:inherit; font-weight:600; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; text-align:left; text-decoration:underline; text-underline-offset:2px; }}
   tr.hl td {{ background:#eaf3f9; }}
   table.small {{ min-width:640px; font-size:13px; }}
+  tr.sb td {{ padding:4px 6px; }}
   ul.alerts {{ margin:0; padding-left:18px; }} ul.alerts li {{ margin:3px 0; }}
   .tl svg {{ display:block; }}
   @media print {{ .vbtn {{ text-decoration:none; color:inherit; }} body {{ background:#fff; }} section, .kpi {{ break-inside:avoid; }} #map {{ height:300px; }} }}
