@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vessel Tracking</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg:#f3f6f8; --card:#ffffff; --ink:#132430; --muted:#5d6e7b; --line:#dbe3e9;
+    --accent:#0b5c8c; --accent-soft:#e3f0f8; --sel:#e8f2f9;
+    --fresh:#1f8a4c; --stale:#c98a00; --old:#c0392b; --none:#8b97a1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d171e; --card:#15232d; --ink:#e4edf2; --muted:#93a5b2; --line:#24363f;
+      --accent:#5fb3e6; --accent-soft:#16364a; --sel:#18303d;
+      --fresh:#3cc070; --stale:#e3a91a; --old:#ec6b5c; --none:#7d8b95;
+    }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); display:flex; flex-direction:column;
+         font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--accent); }
+  button, select, input { font:inherit; color:inherit; }
+
+  /* ---------- header ---------- */
+  header { background:var(--card); border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center;
+           gap:6px 14px; padding:8px 14px; position:relative; z-index:1000; }
+  h1 { font-size:16px; margin:0; white-space:nowrap; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip-k { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--bg); border-radius:999px;
+            padding:3px 10px; cursor:pointer; white-space:nowrap; }
+  .chip-k b { font-variant-numeric:tabular-nums; }
+  .chip-k[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .spacer { flex:1 1 0; }
+  .runinfo { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pill { display:inline-flex; align-items:center; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700;
+          background:var(--accent-soft); color:var(--accent); white-space:nowrap; }
+  .pill.bad { background:color-mix(in srgb, var(--old) 15%, transparent); color:var(--old); }
+  .pill.warn { background:color-mix(in srgb, var(--stale) 18%, transparent); color:var(--ink); }
+  .hbtn { border:1px solid var(--line); background:var(--card); color:var(--accent); font-weight:600; border-radius:8px;
+          padding:4px 10px; cursor:pointer; }
+  .hbtn:hover { background:var(--accent-soft); }
+  .popover { position:absolute; right:14px; top:100%; margin-top:4px; width:min(560px, calc(100vw - 28px)); max-height:70vh; overflow:auto;
+             background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); display:none; }
+  .popover.open { display:block; }
+  .popover h2 { font-size:14px; margin:0; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .reports { list-style:none; margin:0; padding:0; }
+  .reports li { display:flex; flex-wrap:wrap; gap:4px 12px; justify-content:space-between; padding:9px 14px; border-bottom:1px solid var(--line); }
+  .tag { display:inline-block; font-size:10px; font-weight:700; border-radius:5px; padding:1px 6px; margin-right:6px; }
+  .tag.m { background:var(--accent); color:var(--card); } .tag.w { background:var(--accent-soft); color:var(--accent); }
+  .foot { padding:10px 14px; color:var(--muted); font-size:12px; }
+  .banner { background:color-mix(in srgb, var(--stale) 14%, var(--card)); border-bottom:1px solid color-mix(in srgb, var(--stale) 40%, transparent);
+            padding:7px 14px; display:none; font-size:12px; }
+
+  /* ---------- workspace ---------- */
+  .ws { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:var(--left, 56%) 6px minmax(0, 1fr); }
+  .left { display:grid; grid-template-rows:var(--top, 55%) 6px minmax(0, 1fr); min-height:0; min-width:0; }
+  .gutter { background:var(--line); position:relative; }
+  .gutter:hover, .gutter.drag { background:var(--accent); }
+  .gutter.v { cursor:col-resize; } .gutter.h { cursor:row-resize; }
+  .gutter::after { content:""; position:absolute; inset:-4px; }
+  .pane { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); }
+  .ptool { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
+  .ptool select, .ptool input[type=date] { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; max-width:100%; }
+  .ptool .mode { font-weight:600; }
+  .pbody { flex:1 1 auto; min-height:0; position:relative; }
+  .pbody > .lmap, .pbody > iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button { border:0; background:var(--card); color:var(--muted); padding:4px 9px; cursor:pointer; font-size:12px; font-weight:600; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:var(--accent); color:var(--card); }
+  .overlay { position:absolute; z-index:500; background:color-mix(in srgb, var(--card) 92%, transparent); border:1px solid var(--line);
+             border-radius:8px; padding:6px 9px; font-size:12px; }
+  .tinfo { display:flex; flex-wrap:wrap; align-items:center; gap:2px 10px; color:var(--muted); font-size:12px; margin-left:auto; min-width:0; }
+  .tinfo span { display:inline-flex; align-items:center; white-space:nowrap; }
+  .catchip { font:inherit; font-size:12px; display:inline-flex; align-items:center; gap:0; padding:2px 8px; border:1px solid var(--line); border-radius:999px; background:var(--card); color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .catchip:hover { border-color:var(--accent); }
+  .catchip[aria-pressed="false"] { color:var(--muted); background:transparent; border-style:dashed; }
+  .catchip[aria-pressed="false"] .dot { background:transparent !important; box-shadow:inset 0 0 0 1.5px var(--none); }
+  .catchip[aria-pressed="false"] .cn { text-decoration:line-through; }
+  .tinfo .places { color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; display:block; }
+  .plist { position:absolute; z-index:600; top:6px; right:6px; width:min(440px, calc(100% - 12px)); max-height:calc(100% - 12px); overflow:auto; padding:0; }
+  .plist table { width:100%; border-collapse:collapse; }
+  .plist td, .plist th { text-align:left; padding:4px 8px; border-top:1px solid var(--line); white-space:nowrap; }
+  .plist td:last-child { white-space:normal; }
+  .plist th { color:var(--muted); font-weight:600; border-top:0; position:sticky; top:0; background:var(--card); }
+  .pchip { display:inline-block; background:var(--accent-soft); color:var(--accent); border-radius:999px; padding:1px 8px; margin:2px 2px 0 0; font-weight:600; }
+  .msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--muted); }
+
+  /* ---------- table ---------- */
+  .right { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); container-type:inline-size; }
+  @container (max-width: 620px) { .hide-s { display:none; } }
+  .ttool { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
+  .ttool input[type=search] { flex:1 1 160px; min-width:0; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 8px; }
+  .ttool select { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; }
+  .count { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .tscroll { flex:1 1 auto; min-height:0; overflow:auto; }
+  table.ships { width:100%; border-collapse:collapse; }
+  table.ships th { position:sticky; top:0; z-index:2; background:var(--card); text-align:left; font-size:11px; color:var(--muted);
+                   font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; cursor:pointer; user-select:none; }
+  table.ships td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.ships tbody tr { cursor:pointer; }
+  table.ships tbody tr:hover { background:color-mix(in srgb, var(--sel) 60%, transparent); }
+  table.ships tbody tr.grp { cursor:default; }
+  table.ships tbody tr.grp:hover { background:none; }
+  table.ships tbody tr.grp td { background:var(--bg); padding:0; border-bottom:1px solid var(--line); }
+  .gbtn { all:unset; box-sizing:border-box; cursor:pointer; display:flex; gap:7px; align-items:center; width:100%; padding:8px; font-size:12px; }
+  .gbtn:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  .gbtn .caret { color:var(--muted); display:inline-block; transition:transform .15s; }
+  .gbtn[aria-expanded="true"] .caret { transform:rotate(90deg); }
+  .gbtn .dot { margin-right:0; }
+  table.ships tbody tr.sel { background:var(--sel); box-shadow:inset 3px 0 0 var(--accent); }
+  .idc { font-weight:700; white-space:nowrap; }
+  .vn { font-weight:600; }
+  .sub { color:var(--muted); font-size:11px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; flex:none; }
+  .fresh{background:var(--fresh)} .stale{background:var(--stale)} .old{background:var(--old)} .none{background:var(--none)}
+  .nowrap { white-space:nowrap; }
+  .mono { font-variant-numeric:tabular-nums; }
+  .vf { text-decoration:none; font-weight:600; white-space:nowrap; }
+  .hide-s { }
+
+  /* ---------- passcode lock ---------- */
+  .lock { position:fixed; inset:0; z-index:5000; display:none; align-items:center; justify-content:center; padding:16px; background:var(--bg); }
+  .lock.open { display:flex; }
+  .lock form { width:100%; max-width:360px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,.08); }
+  .lock h2 { margin:0 0 4px; font-size:18px; }
+  .lock p { margin:0 0 16px; color:var(--muted); font-size:13px; line-height:1.45; }
+  .lock input[type=password] { width:100%; box-sizing:border-box; font:inherit; font-size:15px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
+  .lock input[type=password]:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .lock label { display:flex; gap:8px; align-items:center; margin:12px 0 16px; font-size:13px; color:var(--muted); }
+  .lock button { width:100%; font:inherit; font-weight:600; padding:10px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .lock button:disabled { opacity:.6; cursor:wait; }
+  .lock .err { color:var(--old); font-size:13px; min-height:18px; margin-top:10px; }
+
+  /* ---------- narrow screens: stack ---------- */
+  @media (max-width: 900px) {
+    body { height:auto; }
+    .ws { display:block; }
+    .left { display:block; }
+    .gutter { display:none; }
+    .pane { height:max(340px, 58vh); border-bottom:1px solid var(--line); }
+    #pane1 { height:max(300px, 46vh); }
+    .right { min-height:60vh; }
+    .tscroll { overflow:visible; }
+    .hide-s { display:none; }
+
+    /* one-line header: title, logger pill, Lock, Reports; status chips in one swipeable row */
+    header { gap:6px 8px; padding:8px 10px; }
+    h1 { order:0; }
+    #runPill { order:1; }
+    .spacer { order:2; }
+    #lockBtn { order:3; }
+    #reportsBtn { order:4; }
+    .chips { order:5; flex:1 1 100%; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -10px; padding:0 10px 2px; }
+    .chips::-webkit-scrollbar, .ptool::-webkit-scrollbar { display:none; }
+    .chip-k { padding:3px 9px; }
+    #runText { display:none; }
+    #runPill { cursor:pointer; }
+    #runPill::after { content:" ▾"; font-weight:400; }
+    header.run-open #runText { display:block; order:6; flex:1 1 100%; color:var(--muted); font-size:12px; }
+    header.run-open #runPill::after { content:" ▴"; }
+    .runinfo { display:contents; }
+
+    /* map toolbars stay on one line; swipe sideways if they don't fit */
+    .ptool { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+    .ptool > * { flex:none; }
+    .ptool .tinfo { flex-wrap:nowrap; margin-left:0; }
+    .ptool select.ship { max-width:200px; }
+  }
+  .lk-ic { vertical-align:-2px; }
+  @media (max-width: 420px) {
+    h1 { font-size:15px; }
+    header { gap:6px; }
+    .hbtn { padding:4px 8px; }
+    .lk-tx, .rp-ar { display:none; }
+    .pill { padding:2px 7px; }
+  }
+</style>
+</head>
+<body>
+<div class="lock" id="lock" role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+  <form id="lockForm" autocomplete="on">
+    <h2 id="lockTitle">Vessel Tracking</h2>
+    <p>This dashboard is locked. Enter the passcode to view positions and reports.</p>
+    <input type="text" name="username" value="vessel-tracker" autocomplete="username" hidden>
+    <input type="password" id="lockPass" autocomplete="current-password" placeholder="Passcode" aria-label="Passcode" required>
+    <label><input type="checkbox" id="lockRemember" checked> Remember on this device</label>
+    <button type="submit" id="lockGo">Unlock</button>
+    <div class="err" id="lockErr" role="alert"></div>
+  </form>
+</div>
+<header>
+  <h1>Vessel Tracking</h1>
+  <div class="chips" id="chips" role="group" aria-label="Filter by last seen"></div>
+  <div class="spacer"></div>
+  <div class="runinfo"><span id="runPill" class="pill" role="button" tabindex="0" aria-controls="runText" title="Logger status">Loading…</span><span id="runText"></span></div>
+  <button class="hbtn" id="lockBtn" hidden title="Forget the passcode on this device and lock the dashboard" aria-label="Lock"><svg class="lk-ic" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="lk-tx"> Lock</span></button>
+  <button class="hbtn" id="reportsBtn" aria-expanded="false" aria-controls="reportsPop">Reports<span class="rp-ar"> ▾</span></button>
+  <div class="popover" id="reportsPop">
+    <h2>Reports</h2>
+    <ul class="reports" id="reports"></ul>
+    <div class="foot">Weekly every Monday 07:50 SGT · monthly on the 1st. Open a report, then Print › Save as PDF.<br>
+      Positions come from shore-based AIS receivers (AISStream), logged on a schedule (currently a test: every hour at :17). Ships far from the coast keep their last known position until back in range.
+      Place names: World Port Index (NGA Pub. 150).</div>
+  </div>
+</header>
+<div class="banner" id="banner"></div>
+
+<main class="ws" id="ws">
+  <div class="left" id="left">
+    <section class="pane" id="pane0" aria-label="Map panel 1"></section>
+    <div class="gutter h" id="gutH" role="separator" aria-orientation="horizontal" aria-label="Resize map panels" tabindex="0"></div>
+    <section class="pane" id="pane1" aria-label="Map panel 2"></section>
+  </div>
+  <div class="gutter v" id="gutV" role="separator" aria-orientation="vertical" aria-label="Resize maps and table" tabindex="0"></div>
+  <section class="right" aria-label="Vessels">
+    <div class="ttool">
+      <input type="search" id="search" placeholder="Search ID, vessel, company" aria-label="Search vessels">
+      <select id="catFilter" aria-label="Filter by category" hidden><option value="">All categories</option></select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tscroll">
+      <table class="ships">
+        <thead><tr>
+          <th data-sort="id">ID</th><th data-sort="vessel_name">Vessel</th><th data-sort="_age">Last seen</th>
+          <th data-sort="_place">Place</th><th class="hide-s" data-sort="_speed">Status</th><th class="hide-s" data-sort="_att">Period</th><th aria-label="Links"></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+  const SGT = 'Asia/Singapore';
+  const LABEL = { fresh:'Last 3 days', stale:'3–7 days', old:'Over 7 days', none:'No position' };
+  const CAT_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'];
+  const CAT_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+  const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
+  const MODES = { fleet:'Fleet map', route:'Vessel route / history', live:'Live (VesselFinder)' };
+
+  let vessels = [], latest = {}, ports = null, positionsPromise = null, catOrder = [];
+  let filter = 'all', catFilter = '', query = '', sortKey = '', sortDir = 1, selectedId = '';
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('vt-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('vt-' + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  let colourBy = store.get('colourBy', 'status');
+  const panes = store.get('panes', [{ mode:'fleet', ship:'', range:'30' }, { mode:'route', ship:'', range:'30' }]);
+
+  // ---------- helpers ----------
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const isDark = () => window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  // ---------- passcode lock: data is stored encrypted in vault/ (see scripts/vault.py) ----------
+  const VAULT = { on:false, key:null, meta:null };
+  const PLAIN = new Set(['vessels.csv', 'assets/ports.json']);
+  const CHECK = 'vessel-tracker-vault-ok', KEY_SLOT = 'vt-vault-key';
+  const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const b64e = u => btoa(String.fromCharCode(...u));
+  async function decRecord(key, rec) {
+    const raw = b64d(rec);
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name:'AES-GCM', iv:raw.slice(0, 12) }, key, raw.slice(12)));
+  }
+  async function deriveRaw(pass, meta) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+    return new Uint8Array(await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt:b64d(meta.salt), iterations:meta.iter }, base, 256));
+  }
+  const aesKey = raw => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+  async function keyWorks(key) { try { return await decRecord(key, VAULT.meta.check) === CHECK; } catch (e) { return false; } }
+  function slotGet() {
+    for (const s of ['localStorage', 'sessionStorage']) { try { const v = JSON.parse(window[s].getItem(KEY_SLOT)); if (v) return v; } catch (e) {} }
+    return null;
+  }
+  function slotSet(v, remember) { try { window[remember ? 'localStorage' : 'sessionStorage'].setItem(KEY_SLOT, JSON.stringify(v)); } catch (e) {} }
+  function slotClear() { for (const s of ['localStorage', 'sessionStorage']) { try { window[s].removeItem(KEY_SLOT); } catch (e) {} } }
+
+  async function fetchText(path) {
+    const r = await fetch(path + '?t=' + Date.now(), { cache:'no-store' });
+    if (!r.ok) throw new Error(path + ' ' + r.status);
+    return r.text();
+  }
+  async function getText(path) {
+    if (!VAULT.on || PLAIN.has(path)) return fetchText(path);
+    const lines = (await fetchText('vault/' + path + '.enc')).split('\n').map(l => l.trim()).filter(Boolean);
+    return (await Promise.all(lines.map(l => decRecord(VAULT.key, l)))).join('');
+  }
+
+  async function start() {
+    try { const r = await fetch('vault/key.json?t=' + Date.now(), { cache:'no-store' }); if (r.ok) VAULT.meta = await r.json(); } catch (e) {}
+    if (!VAULT.meta) { init(); return; }                     // not locked yet: readable files
+    VAULT.on = true;
+    const lockBtn = $('lockBtn'); lockBtn.hidden = false;
+    lockBtn.onclick = () => { slotClear(); location.reload(); };
+    const saved = slotGet();
+    if (saved && saved.salt === VAULT.meta.salt) {
+      const key = await aesKey(b64d(saved.k)).catch(() => null);
+      if (key && await keyWorks(key)) { VAULT.key = key; init(); return; }
+    }
+    slotClear();
+    const lock = $('lock'), form = $('lockForm'), pass = $('lockPass'), go = $('lockGo'), err = $('lockErr');
+    lock.classList.add('open'); pass.focus();
+    form.onsubmit = async e => {
+      e.preventDefault(); err.textContent = ''; go.disabled = true; go.textContent = 'Unlocking…';
+      try {
+        const raw = await deriveRaw(pass.value.trim(), VAULT.meta), key = await aesKey(raw);
+        if (!await keyWorks(key)) { err.textContent = 'Wrong passcode. Try again.'; pass.select(); return; }
+        slotSet({ salt:VAULT.meta.salt, k:b64e(raw) }, $('lockRemember').checked);
+        VAULT.key = key; pass.value = ''; lock.classList.remove('open'); init();
+      } catch (x) { err.textContent = 'Could not unlock (' + (x.message || x) + ').'; }
+      finally { go.disabled = false; go.textContent = 'Unlock'; }
+    };
+  }
+
+  // Locked reports are decrypted here and opened as a temporary page in a new tab.
+  async function openReport(file) {
+    const w = window.open('', '_blank');
+    if (w) w.document.write('<p style="font:14px system-ui,sans-serif;padding:16px">Opening report…</p>');
+    try {
+      const url = URL.createObjectURL(new Blob([await getText('reports/' + file)], { type:'text/html' }));
+      if (w) w.location.href = url; else location.href = url;
+    } catch (e) { if (w) w.close(); banner('Could not open that report (' + esc(e.message || e) + ').'); }
+  }
+  async function getJSON(path, fb) { try { return JSON.parse(await getText(path)); } catch (e) { return fb; } }
+  function parseCSV(text) {
+    const rows = []; let row = [], cell = '', q = false;
+    text = text.replace(/^﻿/, '');
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) { if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += c;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    const head = (rows.shift() || []).map(h => h.trim());
+    return rows.filter(r => r.some(x => x.trim() !== '')).map(r => Object.fromEntries(head.map((h, i) => [h, (r[i] || '').trim()])));
+  }
+  const fmtTime = iso => iso ? new Date(iso).toLocaleString('en-SG', { timeZone:SGT, day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:false }) : '—';
+  function age(iso) {
+    if (!iso) return '';
+    const h = (Date.now() - new Date(iso).getTime()) / 36e5;
+    return h < 1 ? 'under 1 h ago' : h < 48 ? Math.floor(h) + ' h ago' : Math.floor(h / 24) + ' days ago';
+  }
+  function stateOf(iso) {
+    if (!iso) return 'none';
+    const h = (Date.now() - new Date(iso).getTime()) / 36e5;
+    return h <= 72 ? 'fresh' : h <= 168 ? 'stale' : 'old';
+  }
+  function coord(lat, lon) {
+    const p = (v, a, b) => { const h = v >= 0 ? a : b; v = Math.abs(v); const d = Math.floor(v); return d + '°' + ((v - d) * 60).toFixed(1).padStart(4, '0') + '′' + h; };
+    return p(lat, 'N', 'S') + ' ' + p(lon, 'E', 'W');
+  }
+  function nm(a1, o1, a2, o2) {
+    const r = Math.PI / 180, dp = (a2 - a1) * r, dl = (o2 - o1) * r;
+    const x = Math.sin(dp / 2) ** 2 + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(dl / 2) ** 2;
+    return 2 * 3440.065 * Math.asin(Math.sqrt(x));
+  }
+  const where = (n, c) => c && c.toLowerCase() !== n.toLowerCase() ? n + ', ' + c : n;
+  function nearestPort(lat, lon) {
+    if (!ports || !ports.length) return null;
+    const k = Math.cos(lat * Math.PI / 180); let best = null, bd = Infinity;
+    for (const p of ports) { const dl = ((p[3] - lon + 540) % 360) - 180, d = (p[2] - lat) ** 2 + (dl * k) ** 2; if (d < bd) { bd = d; best = p; } }
+    const r = Math.PI / 180, y = Math.sin((lon - best[3]) * r) * Math.cos(lat * r);
+    const x = Math.cos(best[2] * r) * Math.sin(lat * r) - Math.sin(best[2] * r) * Math.cos(lat * r) * Math.cos((lon - best[3]) * r);
+    return { name:where(best[0], best[1]), dist:nm(best[2], best[3], lat, lon), dir:DIRS[Math.floor(((Math.atan2(y, x) / r + 360) % 360 + 22.5) / 45) % 8] };
+  }
+  function placeLabel(lat, lon) {
+    const n = nearestPort(lat, lon); if (!n) return '';
+    if (n.dist <= 3) return 'At ' + n.name;
+    if (n.dist <= NEAR_NM) return Math.round(n.dist) + ' nm ' + n.dir + ' of ' + n.name;
+    return 'At sea, ' + Math.round(n.dist) + ' nm ' + n.dir + ' of ' + n.name;
+  }
+  const loadPositions = () => positionsPromise || (positionsPromise = getText('data/positions.csv').then(parseCSV).catch(() => []));
+  const sgtDate = d => new Date(d).toLocaleDateString('en-CA', { timeZone:SGT });
+  function period(v) {
+    const s = Date.parse(v.start_date), e = Date.parse(v.end_date);
+    if (isNaN(s) || isNaN(e)) return { text:'', n:0 };
+    const today = Date.parse(sgtDate(Date.now())), total = Math.round((e - s) / 864e5) + 1;
+    if (today < s) return { text:'Starts ' + new Date(s).toLocaleDateString('en-SG', { day:'2-digit', month:'short' }), n:-1 };
+    if (today > e) return { text:'Completed', n:2 };
+    const day = Math.round((today - s) / 864e5) + 1;
+    return { text:'Day ' + day + '/' + total, n:day / total };
+  }
+  function catColor(cat) {
+    const i = catOrder.indexOf(cat);
+    return (!cat || i < 0 || i >= 8) ? css('--none') : (isDark() ? CAT_DARK : CAT_LIGHT)[i];
+  }
+  const dotColor = v => colourBy === 'category' && catOrder.length ? catColor(v.category) : css('--' + v._state);
+  const shipById = id => vessels.find(v => v.id === id);
+  const visible = () => {
+    const q = query.toLowerCase();
+    return vessels.filter(v => (filter === 'all' || v._state === filter) &&
+      (!catFilter || (catFilter === '__none' ? !v.category : v.category === catFilter)) &&
+      (!q || [v.id, v.vessel_name, v.company, v.category].join(' ').toLowerCase().includes(q)));
+  };
+  function tiles(map) {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:12, attribution:'© OpenStreetMap' }).addTo(map);
+  }
+  function vfSrcdoc(v, h) {
+    const imo = (v.imo || '').replace(/\D/g, ''), mmsi = (v.mmsi || '').replace(/\D/g, '');
+    const sel = imo ? 'var imo="' + imo + '";' : 'var mmsi="' + mmsi + '";';
+    return '<!doctype html><html><head><style>html,body{margin:0;height:100%}</style></head><body>' +
+      '<script>var width="100%";var height="' + Math.max(200, h) + '";var names=true;var zoom="6";' + sel + 'var show_track=true;<\/script>' +
+      '<script src="https://www.vesselfinder.com/aismap.js"><\/script></body></html>';
+  }
+
+  // ---------- header: chips, run status, reports ----------
+  function renderChips() {
+    const c = { all:vessels.length, fresh:0, stale:0, old:0, none:0 };
+    vessels.forEach(v => c[v._state]++);
+    $('chips').innerHTML = [['all', 'All', ''], ['fresh', LABEL.fresh, 'fresh'], ['stale', LABEL.stale, 'stale'], ['old', LABEL.old, 'old'], ['none', LABEL.none, 'none']]
+      .map(([k, l, d]) => `<button class="chip-k" data-k="${k}" aria-pressed="${filter === k}">${d ? `<i class="dot ${d}"></i>` : ''}${l} <b>${c[k]}</b></button>`).join('');
+    $('chips').querySelectorAll('button').forEach(b => b.onclick = () => {
+      filter = filter === b.dataset.k ? 'all' : b.dataset.k; renderChips(); refreshAll();
+    });
+  }
+  function renderRun(run) {
+    const pill = $('runPill'), txt = $('runText');
+    if (!run || !run.last_run_utc) { pill.textContent = 'Logger not run yet'; txt.textContent = 'Test: runs hourly at :17'; return; }
+    const ok = String(run.last_status || '').startsWith('ok');
+    const hrs = (Date.now() - new Date(run.last_run_utc).getTime()) / 36e5, late = ok && hrs > 14;
+    pill.textContent = !ok ? 'Logger problem' : late ? 'Logger late' : 'Logger OK';
+    pill.classList.toggle('bad', !ok); pill.classList.toggle('warn', late);
+    if (!ok) pill.title = run.last_status;
+    const h = (run.history || [])[0] || {};
+    txt.textContent = `Last run ${fmtTime(run.last_run_utc)} · heard ${h.vessels_heard ?? 0}/${h.vessels_tracked ?? 0} · test: hourly at :17`;
+    if (late) banner(`<b>No new positions for ${Math.floor(hrs)} hours.</b> A scheduled log was missed (GitHub sometimes skips scheduled runs); it normally catches up at the next run. To log now: GitHub › Actions › Daily position log › Run workflow.`);
+  }
+  function toggleRun() {
+    if (!window.matchMedia('(max-width: 900px)').matches) return;
+    const h = document.querySelector('header'); h.classList.toggle('run-open');
+    $('runPill').setAttribute('aria-expanded', h.classList.contains('run-open'));
+  }
+  $('runPill').onclick = toggleRun;
+  $('runPill').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRun(); } };
+  function banner(html) { const b = $('banner'); b.style.display = 'block'; b.innerHTML += (b.innerHTML ? '<br>' : '') + html; }
+  function renderReports(list) {
+    const item = r => {
+      const m = r.kind === 'monthly';
+      const stats = m ? `${r.heard ?? 0} of ${r.tracked} heard · ${r.positions ?? 0} positions` : `${r.fresh} recent · ${r.stale} 3–7 d · ${r.old} >7 d · ${r.none} none`;
+      return `<li><span><span class="tag ${m ? 'm' : 'w'}">${m ? 'Monthly' : 'Weekly'}</span><a href="reports/${encodeURIComponent(r.file)}" data-file="${esc(r.file)}" target="_blank" rel="noopener"><b>${m ? '' : 'Week '}${esc(r.period)}</b></a></span><span class="sub">${stats}</span></li>`;
+    };
+    $('reports').innerHTML = list.length
+      ? list.filter(r => r.kind === 'monthly').slice(0, 6).map(item).join('') + list.filter(r => r.kind !== 'monthly').slice(0, 8).map(item).join('')
+      : '<li class="sub">The first report appears after the first Monday (weekly) or 1st of the month (monthly).</li>';
+    $('reports').onclick = e => { const a = e.target.closest('a[data-file]'); if (a && VAULT.on) { e.preventDefault(); openReport(a.dataset.file); } };
+    const btn = $('reportsBtn'), pop = $('reportsPop');
+    btn.onclick = e => { e.stopPropagation(); const o = pop.classList.toggle('open'); btn.setAttribute('aria-expanded', o); };
+    document.addEventListener('click', e => { if (!pop.contains(e.target) && e.target !== btn) { pop.classList.remove('open'); btn.setAttribute('aria-expanded', false); } });
+  }
+
+  // ---------- category sections ----------
+  // Default: only the latest category is open (highest number, e.g. 2620 before 2615;
+  // test categories marked TS never open by default). Others start collapsed.
+  const NOCAT = 'No category';
+  const isTS = c => /\bTS\b/i.test(c || '');
+  const catNum = c => { const m = /\d+/.exec(c || ''); return m ? Number(m[0]) : -1; };
+  const catOf = v => v.category || NOCAT;
+  function latestCat(cats) {
+    cats = cats.filter(Boolean);
+    const pool = cats.filter(c => !isTS(c)), use = pool.length ? pool : cats;
+    if (!use.length) return '';
+    const best = Math.max(...use.map(catNum));
+    return use.filter(c => catNum(c) === best).pop();
+  }
+  const catRank = (c, open) => [c !== open, c === NOCAT, isTS(c), -catNum(c)];
+  function catCompare(a, b, open) {
+    const x = catRank(a, open), y = catRank(b, open);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+    return a.localeCompare(b, undefined, { numeric:true });
+  }
+  let openCats = null, defaultCat = '';
+  // Categories hidden on the fleet map (map only; remembered on this device).
+  const hiddenCats = new Set(store.get('hiddenCats', []));
+  const saveHidden = () => store.set('hiddenCats', [...hiddenCats]);
+
+  // ---------- table ----------
+  function rowHTML(v) {
+      const p = latest[v.id] || {}, a = period(v);
+      const status = [p.nav_status, p.speed_kn != null ? p.speed_kn + ' kn' : ''].filter(Boolean).join(' · ');
+      return `<tr data-id="${esc(v.id)}" class="${v.id === selectedId ? 'sel' : ''}">
+        <td class="idc">${esc(v.id)}</td>
+        <td><div class="vn">${v.category ? `<i class="dot" style="background:${catColor(v.category)}" title="${esc(v.category)}"></i>` : ''}${esc(v.vessel_name)}</div>
+            <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div></td>
+        <td class="nowrap"><i class="dot ${v._state}"></i>${p.last_seen_utc ? esc(age(p.last_seen_utc)) : '<span class="sub">none</span>'}
+            ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}</td>
+        <td>${p.latitude != null ? esc(v._place || coord(p.latitude, p.longitude)) : '<span class="sub">—</span>'}
+            ${p.destination ? `<div class="sub">→ ${esc(p.destination)}</div>` : ''}</td>
+        <td class="hide-s sub">${esc(status) || '—'}</td>
+        <td class="hide-s sub nowrap">${esc(a.text)}</td>
+        <td>${v.imo ? `<a class="vf" href="https://www.vesselfinder.com/vessels/details/${encodeURIComponent(v.imo)}" target="_blank" rel="noopener" title="Open in VesselFinder" aria-label="Open ${esc(v.vessel_name)} in VesselFinder">↗</a>` : ''}</td>
+      </tr>`;
+  }
+  function renderTable() {
+    let list = visible();
+    if (sortKey) list = list.slice().sort((a, b) => {
+      const x = a[sortKey] ?? '', y = b[sortKey] ?? '';
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric:true })) * sortDir;
+    });
+    $('count').textContent = list.length === vessels.length ? `${list.length} vessels` : `${list.length} of ${vessels.length}`;
+    let html;
+    if (!list.length) html = `<tr><td colspan="7" class="sub" style="text-align:center;padding:20px">No vessels match.</td></tr>`;
+    else if (!catOrder.length) html = list.map(rowHTML).join('');
+    else {
+      const groups = new Map();
+      list.forEach(v => { const c = catOf(v); if (!groups.has(c)) groups.set(c, []); groups.get(c).push(v); });
+      const searching = !!query.trim();
+      html = [...groups.keys()].sort((a, b) => catCompare(a, b, defaultCat)).map(c => {
+        const vs = groups.get(c), open = searching || openCats.has(c), recent = vs.filter(v => v._state === 'fresh').length;
+        const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
+        return `<tr class="grp"><td colspan="7"><button class="gbtn" data-cat="${esc(c)}" aria-expanded="${open}"><span class="caret" aria-hidden="true">▸</span>${dot}<b>${esc(c)}</b>
+          <span class="sub">· ${vs.length} ship${vs.length === 1 ? '' : 's'} · ${recent} seen in last 3 days</span></button></td></tr>` + (open ? vs.map(rowHTML).join('') : '');
+      }).join('');
+    }
+    $('rows').innerHTML = html;
+    $('rows').querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = e => { if (e.target.closest('a')) return; select(tr.dataset.id, true); });
+    $('rows').querySelectorAll('.gbtn').forEach(b => b.onclick = () => {
+      const c = b.dataset.cat; openCats.has(c) ? openCats.delete(c) : openCats.add(c); renderTable();
+    });
+  }
+  function select(id, fromTable) {
+    selectedId = id;
+    const v = shipById(id);
+    if (v && openCats && catOrder.length && !openCats.has(catOf(v))) { openCats.add(catOf(v)); renderTable(); }
+    $('rows').querySelectorAll('tr[data-id]').forEach(tr => tr.classList.toggle('sel', tr.dataset.id === id));
+    if (!fromTable) { const tr = $('rows').querySelector(`tr[data-id="${CSS.escape(id)}"]`); if (tr) tr.scrollIntoView({ block:'nearest' }); }
+    if (fromTable && v && hiddenCats.has(catOf(v))) { hiddenCats.delete(catOf(v)); saveHidden(); P.forEach(q => q.mode === 'fleet' && renderPane(q)); }
+    if (fromTable && P.length === 2) {
+      // Clicking a ship in the table: top panel = fleet map zoomed to it, bottom panel = its route.
+      const [top, bot] = P;
+      if (top.mode !== 'fleet') { top.mode = 'fleet'; top.ship = ''; renderPane(top); }
+      if (bot.mode !== 'route' || bot.ship) { bot.mode = 'route'; bot.ship = ''; }
+      save();
+      focusFleet(top, id, 7);
+      renderPane(bot);
+      if (window.matchMedia('(max-width: 900px)').matches) top.el.scrollIntoView({ behavior:'smooth', block:'start' });
+      return;
+    }
+    P.forEach(p => {
+      if (p.mode === 'fleet') focusFleet(p, id);
+      else if (!p.ship) renderPane(p);      // "Selected ship" panes follow the selection
+    });
+  }
+
+  // ---------- map panes ----------
+  const P = [];
+  function shipOptions(cur) {
+    return `<option value="" ${!cur ? 'selected' : ''}>Selected ship${selectedId ? ' (' + esc(selectedId) + ')' : ''}</option>` +
+      vessels.map(v => `<option value="${esc(v.id)}" ${cur === v.id ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
+  }
+  function save() { store.set('panes', P.map(p => ({ mode:p.mode, ship:p.ship, range:p.range, from:p.from, to:p.to }))); }
+  function destroy(p) { if (p.map) { p.map.remove(); p.map = null; } p.markers = {}; }
+
+  function renderPane(p) {
+    destroy(p);
+    const ship = shipById(p.ship || selectedId);
+    let tools = `<select class="mode" aria-label="What this panel shows">${Object.entries(MODES).map(([k, l]) => `<option value="${k}" ${p.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    if (p.mode === 'fleet') {
+      tools += catOrder.length ? `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button><button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button></div>` : '';
+      tools += `<button class="hbtn" data-act="fit">Fit all</button>`;
+    } else {
+      tools += `<select class="ship" aria-label="Vessel">${shipOptions(p.ship)}</select>`;
+      if (p.mode === 'route') {
+        tools += `<div class="seg" role="group" aria-label="Period">${[['7', '7 d'], ['30', '30 d'], ['all', 'All'], ['c', 'Dates']].map(([k, l]) => `<button data-r="${k}" class="${p.range === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+        if (p.range === 'c') {
+          const today = sgtDate(Date.now());
+          tools += `<input type="date" class="from" aria-label="From" value="${p.from || sgtDate(Date.now() - 30 * 864e5)}" max="${today}"><input type="date" class="to" aria-label="To" value="${p.to || today}" max="${today}">`;
+        }
+      }
+    }
+    p.el.innerHTML = `<div class="ptool">${tools}</div><div class="pbody"></div>`;
+    const body = p.el.querySelector('.pbody');
+    p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
+    const shipSel = p.el.querySelector('.ship');
+    if (shipSel) shipSel.onchange = e => { p.ship = e.target.value; save(); renderPane(p); };
+    p.el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { colourBy = b.dataset.c; store.set('colourBy', colourBy); P.forEach(q => q.mode === 'fleet' && renderPane(q)); });
+    p.el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { p.range = b.dataset.r; save(); renderPane(p); });
+    p.el.querySelectorAll('.from,.to').forEach(i => i.onchange = () => { p.from = p.el.querySelector('.from').value; p.to = p.el.querySelector('.to').value; save(); renderPane(p); });
+    const fit = p.el.querySelector('[data-act=fit]'); if (fit) fit.onclick = () => fitFleet(p);
+
+    if (p.mode === 'fleet') return drawFleet(p, body);
+    if (!ship) { body.innerHTML = '<div class="msg">Click a vessel in the table, or pick one above.</div>'; return; }
+    if (p.mode === 'live') {
+      if (!ship.imo && !ship.mmsi) { body.innerHTML = '<div class="msg">No IMO or MMSI for this vessel.</div>'; return; }
+      const f = document.createElement('iframe');
+      f.title = 'Live position of ' + ship.vessel_name; f.srcdoc = vfSrcdoc(ship, body.clientHeight || 300);
+      body.appendChild(f); p.liveH = body.clientHeight;
+      return;
+    }
+    drawRoute(p, body, ship);
+  }
+
+  function newMap(p, body) {
+    const el = document.createElement('div'); el.className = 'lmap'; body.appendChild(el);
+    if (!window.L) { body.innerHTML = '<div class="msg">Map could not load.</div>'; return null; }
+    const m = L.map(el, { worldCopyJump:true, zoomControl:true }).setView([15, 100], 3); tiles(m); p.map = m; return m;
+  }
+  function drawFleet(p, body) {
+    const m = newMap(p, body); if (!m) return;
+    p.markers = {};
+    visible().forEach(v => {
+      const q = latest[v.id]; if (!q || q.latitude == null || hiddenCats.has(catOf(v))) return;
+      p.markers[v.id] = L.circleMarker([q.latitude, q.longitude], { radius:v.id === selectedId ? 9 : 7, color:'#fff', weight:2, fillColor:dotColor(v), fillOpacity:1 })
+        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}<br>${esc(fmtTime(q.last_seen_utc))} SGT (${esc(age(q.last_seen_utc))})`, { direction:'top' })
+        .on('click', () => select(v.id)).addTo(m);
+    });
+    const leg = document.createElement('div'); leg.className = 'tinfo'; leg.setAttribute('aria-label', 'Legend');
+    const cats = [...new Set(vessels.map(catOf))].sort((a, b) => catCompare(a, b, defaultCat));
+    const chips = cats.length > 1 || catOrder.length ? cats.map(c => {
+      const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
+      const on = !hiddenCats.has(c);
+      return `<button class="catchip" data-hc="${esc(c)}" aria-pressed="${on}" title="${on ? 'Hide' : 'Show'} ${esc(c)} on the map">${dot}<span class="cn">${esc(c)}</span></button>`;
+    }).join('') : '';
+    leg.innerHTML = chips + (colourBy === 'category' && catOrder.length ? ''
+      : '<span><i class="dot fresh"></i>Last 3 days</span><span><i class="dot stale"></i>3–7 days</span><span><i class="dot old"></i>Over 7 days</span>');
+    leg.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => {
+      const c = b.dataset.hc; hiddenCats.has(c) ? hiddenCats.delete(c) : hiddenCats.add(c); saveHidden();
+      P.forEach(q => q.mode === 'fleet' && renderPane(q));
+    });
+    p.el.querySelector('.ptool').appendChild(leg);
+    if (!Object.keys(p.markers).length) { const d = document.createElement('div'); d.className = 'overlay'; d.style.cssText = 'left:50%;top:12px;transform:translateX(-50%)'; d.textContent = hiddenCats.size ? 'No ships to show. Some categories are hidden: click a category above to show it.' : 'No positions logged yet for these vessels.'; body.appendChild(d); }
+    fitFleet(p);
+  }
+  function fitFleet(p) {
+    if (!p.map) return;
+    const pts = Object.values(p.markers).map(mk => mk.getLatLng());
+    if (pts.length) p.map.fitBounds(pts, { padding:[30, 30], maxZoom:7 });
+  }
+  function focusFleet(p, id, zoom) {
+    Object.entries(p.markers || {}).forEach(([k, mk]) => mk.setRadius && mk.setRadius(k === id ? 9 : 7));
+    const mk = p.markers && p.markers[id];
+    if (mk && p.map) { mk.bringToFront && mk.bringToFront(); p.map.setView(mk.getLatLng(), Math.max(p.map.getZoom(), zoom || 6)); mk.openTooltip(); }
+  }
+  async function drawRoute(p, body, ship) {
+    body.innerHTML = '<div class="msg">Loading…</div>';
+    const rows = await loadPositions();
+    if (!p.el.contains(body)) return;           // pane re-rendered meanwhile
+    let from = -Infinity, to = Date.now();
+    if (p.range === '7' || p.range === '30') from = Date.now() - Number(p.range) * 864e5;
+    if (p.range === 'c') { from = Date.parse((p.from || sgtDate(Date.now() - 30 * 864e5)) + 'T00:00:00+08:00'); to = Date.parse((p.to || sgtDate(Date.now())) + 'T23:59:59+08:00'); }
+    const fx = rows.filter(r => r.id === ship.id).map(r => ({ t:Date.parse(r.ais_time_utc), lat:parseFloat(r.latitude), lon:parseFloat(r.longitude), sp:r.speed_kn, st:r.nav_status, dest:r.destination }))
+      .filter(f => !isNaN(f.t) && !isNaN(f.lat) && !isNaN(f.lon) && f.t >= from && f.t <= to).sort((a, b) => a.t - b.t);
+    body.innerHTML = '';
+    if (!fx.length) { body.innerHTML = `<div class="msg">No positions logged for ${esc(ship.vessel_name)} in this period.</div>`; return; }
+    fx.forEach(f => { f.place = placeLabel(f.lat, f.lon); f.near = nearestPort(f.lat, f.lon); });
+    let dist = 0; for (let i = 1; i < fx.length; i++) dist += nm(fx[i - 1].lat, fx[i - 1].lon, fx[i].lat, fx[i].lon);
+    const visited = []; fx.forEach(f => { if (f.near && f.near.dist <= NEAR_NM && !visited.includes(f.near.name)) visited.push(f.near.name); });
+    const m = newMap(p, body); if (!m) return;
+    const col = ship.category ? catColor(ship.category) : css('--accent'), pts = fx.map(f => [f.lat, f.lon]);
+    if (pts.length > 1) L.polyline(pts, { color:col, weight:2.5, opacity:.8 }).addTo(m);
+    fx.forEach((f, i) => {
+      const last = i === fx.length - 1;
+      L.circleMarker([f.lat, f.lon], { radius:last ? 8 : 4, color:'#fff', weight:last ? 2 : 1, fillColor:col, fillOpacity:1 })
+        .bindTooltip(`${esc(fmtTime(f.t))} SGT<br>${esc(f.place)}`, { direction:'top' }).addTo(m);
+    });
+    m.fitBounds(pts, { padding:[30, 30], maxZoom:8 });
+    const days = new Set(fx.map(f => sgtDate(f.t))).size;
+    const info = document.createElement('div'); info.className = 'tinfo';
+    const placesTxt = visited.length ? visited.join(' → ') : 'No port within 30 nm';
+    info.innerHTML = `<span>${fx.length} pos · ${days} d · ~${Math.round(dist)} nm</span>
+      <span class="places" title="${esc(placesTxt)}">${esc(placesTxt)}</span>
+      <button class="hbtn" type="button" aria-expanded="false">List ▾</button>`;
+    p.el.querySelector('.ptool').appendChild(info);
+    const list = document.createElement('div'); list.className = 'overlay plist'; list.hidden = true;
+    list.innerHTML = `<table><thead><tr><th>Time (SGT)</th><th>Place</th><th>Status</th></tr></thead><tbody>
+      ${fx.slice().reverse().map(f => `<tr><td>${esc(fmtTime(f.t))}</td><td>${esc(f.place)}</td><td>${esc([f.st, f.sp ? f.sp + ' kn' : ''].filter(Boolean).join(' · '))}</td></tr>`).join('')}
+      </tbody></table>`;
+    L.DomEvent && L.DomEvent.disableClickPropagation && L.DomEvent.disableClickPropagation(list);
+    L.DomEvent && L.DomEvent.disableScrollPropagation && L.DomEvent.disableScrollPropagation(list);
+    body.appendChild(list);
+    const lb = info.querySelector('button');
+    lb.onclick = () => { list.hidden = !list.hidden; lb.setAttribute('aria-expanded', !list.hidden); lb.textContent = list.hidden ? 'List ▾' : 'List ▴'; };
+  }
+  function refreshAll() { renderTable(); P.forEach(p => p.mode === 'fleet' && renderPane(p)); }
+
+  // ---------- draggable dividers ----------
+  function setupGutters() {
+    const ws = $('ws'), left = $('left');
+    const lay = store.get('layout', { left:56, top:55 });
+    const apply = () => { ws.style.setProperty('--left', lay.left + '%'); left.style.setProperty('--top', lay.top + '%'); };
+    apply();
+    function drag(g, onMove) {
+      const start = e => {
+        e.preventDefault(); g.classList.add('drag'); document.body.style.userSelect = 'none';
+        const move = ev => { const pt = ev.touches ? ev.touches[0] : ev; onMove(pt); apply(); };
+        const up = () => { g.classList.remove('drag'); document.body.style.userSelect = ''; store.set('layout', lay);
+          ['mousemove', 'touchmove'].forEach(t => window.removeEventListener(t, move)); ['mouseup', 'touchend'].forEach(t => window.removeEventListener(t, up)); relayout(); };
+        window.addEventListener('mousemove', move); window.addEventListener('touchmove', move, { passive:false });
+        window.addEventListener('mouseup', up); window.addEventListener('touchend', up);
+      };
+      g.addEventListener('mousedown', start); g.addEventListener('touchstart', start, { passive:false });
+    }
+    drag($('gutV'), pt => { const r = ws.getBoundingClientRect(); lay.left = Math.min(80, Math.max(25, (pt.clientX - r.left) / r.width * 100)); });
+    drag($('gutH'), pt => { const r = left.getBoundingClientRect(); lay.top = Math.min(85, Math.max(15, (pt.clientY - r.top) / r.height * 100)); });
+    const key = (g, prop, step) => g.addEventListener('keydown', e => {
+      const d = { ArrowLeft:-step, ArrowUp:-step, ArrowRight:step, ArrowDown:step }[e.key]; if (!d) return;
+      e.preventDefault(); lay[prop] = Math.min(prop === 'left' ? 80 : 85, Math.max(prop === 'left' ? 25 : 15, lay[prop] + d)); apply(); store.set('layout', lay); relayout();
+    });
+    key($('gutV'), 'left', 2); key($('gutH'), 'top', 3);
+  }
+  let rt;
+  function relayout() {
+    P.forEach(p => {
+      if (p.map) p.map.invalidateSize();
+      if (p.mode === 'live') { const h = p.el.querySelector('.pbody').clientHeight; if (Math.abs(h - (p.liveH || 0)) > 40) renderPane(p); }
+    });
+  }
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(relayout, 150); });
+  if (window.ResizeObserver) { const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => P.forEach(p => p.map && p.map.invalidateSize()), 60); }); ['pane0', 'pane1'].forEach(id => ro.observe($(id))); }
+
+  // ---------- start ----------
+  async function init() {
+    let csv;
+    try { csv = await getText('vessels.csv'); }
+    catch (e) { banner('Could not load <b>vessels.csv</b>. Open this page through its GitHub Pages link (https://&lt;username&gt;.github.io/&lt;project&gt;/), not as a file on your computer.'); $('runPill').textContent = 'No data'; return; }
+    vessels = parseCSV(csv).filter(v => v.id);
+    let run, reports;
+    [latest, run, reports, ports] = await Promise.all([getJSON('data/latest.json', {}), getJSON('data/run_log.json', null),
+      getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || [])]);
+    const order = { fresh:0, stale:1, old:2, none:3 };
+    vessels.forEach(v => {
+      const p = latest[v.id] || {};
+      v.category = (v.category || '').trim();
+      if (v.category && !catOrder.includes(v.category)) catOrder.push(v.category);
+      v._state = stateOf(p.last_seen_utc);
+      v._age = p.last_seen_utc ? Date.now() - new Date(p.last_seen_utc).getTime() : Infinity;
+      v._place = p.latitude != null ? placeLabel(p.latitude, p.longitude) : '';
+      v._speed = p.speed_kn ?? -1;
+      v._att = period(v).n;
+    });
+    vessels.sort((a, b) => order[a._state] - order[b._state] || a.id.localeCompare(b.id, undefined, { numeric:true }));
+    defaultCat = latestCat([...new Set(vessels.map(catOf))]);
+    openCats = new Set(defaultCat ? [defaultCat] : []);
+    selectedId = (vessels.find(v => latest[v.id] && catOf(v) === defaultCat) || vessels.find(v => latest[v.id]) || vessels[0] || {}).id || '';
+
+    if (catOrder.length) {
+      const sel = $('catFilter'); sel.hidden = false;
+      sel.innerHTML = '<option value="">All categories</option>' + catOrder.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('') +
+        (vessels.some(v => !v.category) ? '<option value="__none">No category</option>' : '');
+      sel.onchange = () => { catFilter = sel.value; refreshAll(); };
+    }
+    $('search').addEventListener('input', e => { query = e.target.value; renderTable(); });
+    document.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
+      const k = th.dataset.sort; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; renderTable();
+    });
+
+    renderRun(run); renderChips(); renderReports(reports); renderTable(); setupGutters();
+    ['pane0', 'pane1'].forEach((id, i) => { const p = Object.assign({ mode:'fleet', ship:'', range:'30' }, panes[i] || {}, { el:$(id), markers:{} }); if (!MODES[p.mode]) p.mode = 'fleet'; P.push(p); renderPane(p); });
+    if (vessels.some(v => /^SAMPLE /i.test(v.vessel_name))) banner('Showing <b>sample vessels</b>. Edit <b>vessels.csv</b> with the real ship names, IMO and MMSI numbers to start tracking.');
+  }
+  start();
+})();
+</script>
+</body>
+</html>

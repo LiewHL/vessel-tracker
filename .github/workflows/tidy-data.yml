@@ -1,0 +1,43 @@
+name: Tidy data
+
+# Removes ships that are no longer in vessels.csv from the logged data and applies ID changes.
+# Edit vessels.csv first, then run this with the ID changes, e.g. "TS07=TS02,TS08=TS03"
+# (list every ship to keep in the run records, including unchanged ones like "MR01=MR01").
+on:
+  workflow_dispatch:
+    inputs:
+      mapping:
+        description: "OLD=NEW pairs for every ship kept, comma-separated"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vessel-data
+  cancel-in-progress: false
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet "cryptography>=42"
+      - name: Unlock, tidy and lock
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+          MAPPING: ${{ github.event.inputs.mapping }}
+          VAULT_COMPACT: "1"
+        run: |
+          python scripts/vault.py open
+          python scripts/tidy_data.py "$MAPPING"
+          python scripts/vault.py seal
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data; [ -d vault ] && git add -A vault
+          git diff --cached --quiet || git commit -q -m "Tidy data"
+          git push --quiet

@@ -1,0 +1,37 @@
+name: Change passcode
+
+# 1. Add a secret REPORT_PASSCODE_NEW with the new passcode (12+ characters).
+# 2. Run this workflow (Actions > Change passcode > Run workflow).
+# 3. When it is green, edit the secret REPORT_PASSCODE to the new passcode and delete REPORT_PASSCODE_NEW.
+#    Between steps 2 and 3 the logger cannot unlock the data, so do step 3 straight away.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vessel-data
+  cancel-in-progress: false
+
+jobs:
+  rekey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet "cryptography>=42"
+      - name: Re-lock everything with the new passcode
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+          REPORT_PASSCODE_NEW: ${{ secrets.REPORT_PASSCODE_NEW }}
+        run: |
+          python scripts/vault.py rekey
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A vault
+          git commit -q -m "Change passcode"
+          git push --quiet

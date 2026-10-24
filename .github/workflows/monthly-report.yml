@@ -1,0 +1,85 @@
+name: Monthly report
+
+on:
+  schedule:
+    - cron: "20 0 1 * *"        # 1st of each month 00:20 UTC = 08:20 Singapore time
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "Month to report on, YYYY-MM (leave empty for last month)"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vessel-data
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cryptography
+        run: pip install --quiet "cryptography>=42"
+
+      - name: Unlock the data
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+        run: python scripts/vault.py open
+
+      - name: Build the monthly report
+        id: build
+        env:
+          MONTH: ${{ github.event.inputs.month }}
+        run: |
+          if [ -n "$MONTH" ]; then
+            python scripts/weekly_report.py --monthly --month "$MONTH" > "$RUNNER_TEMP/summary.json"
+          else
+            python scripts/weekly_report.py --monthly > "$RUNNER_TEMP/summary.json"
+          fi
+          echo "file=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['file'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+          echo "period=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+
+      # Once a month the position log is also re-packed into one record (keeps it compact).
+      - name: Lock and save the report to the project
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+          VAULT_COMPACT: "1"
+        run: |
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python scripts/vault.py seal
+          git add -A data reports; [ -d vault ] && git add -A vault
+          git diff --cached --quiet || git commit -q -m "Monthly report ${{ steps.build.outputs.period }}"
+          for i in 1 2 3; do
+            git pull --rebase --quiet && git push --quiet && break
+            sleep 5
+          done
+
+      # The emailed copy is readable (it is never saved to the public site).
+      - name: Email the monthly report (private - recipients and login are GitHub secrets)
+        env:
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          SITE="https://${OWNER,,}.github.io/${REPO}"
+          FILE="${{ steps.build.outputs.file }}"
+          mapfile -t CSVS < <(python scripts/export_csv.py monthly "$RUNNER_TEMP/csv" "${{ github.event.inputs.month }}")
+          set +e
+          python scripts/send_email.py reports/latest-monthly-summary.md "reports/$FILE" "Monthly vessel report: ${{ steps.build.outputs.period }}" "$SITE/" "" "${CSVS[@]}"
+          rc=$?
+          if [ $rc -eq 3 ]; then echo "::warning::Email secrets not set, so no email was sent. The report is on the dashboard."; exit 0; fi
+          exit $rc

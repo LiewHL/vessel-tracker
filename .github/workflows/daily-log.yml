@@ -1,0 +1,69 @@
+name: Daily position log
+
+on:
+  schedule:
+    # TEMPORARY TEST: every hour at :17, 15-minute listen.
+    # Normal schedule to restore afterwards: "47 3,15 * * *" (11:47 and 23:47 SGT), 30-minute listen.
+    - cron: "17 * * * *"
+  workflow_dispatch:             # lets you run it by hand from the Actions tab
+    inputs:
+      listen_minutes:
+        description: "Minutes to listen for ships"
+        default: "30"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vessel-data
+  cancel-in-progress: false
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install websockets and cryptography
+        run: pip install --quiet "websockets>=12" "cryptography>=42"
+
+      # Data is stored encrypted (vault/). Unlock it for this run only.
+      - name: Unlock the data
+        id: open
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+        run: python scripts/vault.py open
+
+      - name: Listen for ships and log positions
+        env:
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '15' }}
+          RUN_TRIGGER: ${{ github.event_name }}
+          SCHEDULE_MINUTE: "17"
+        run: python scripts/log_positions.py
+
+      - name: Lock and save the log to the project
+        if: always() && steps.open.outcome == 'success'
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+        run: |
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python scripts/vault.py seal
+          git add -A data; [ -d vault ] && git add -A vault
+          if git diff --cached --quiet; then
+            echo "Nothing new to save."
+            exit 0
+          fi
+          git commit -q -m "Daily position log $(date -u +%Y-%m-%d)"
+          for i in 1 2 3; do
+            git pull --rebase --quiet && git push --quiet && exit 0
+            sleep 5
+          done
+          echo "::error::Could not save the log to the project (push failed 3 times)."
+          exit 1
