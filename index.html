@@ -92,7 +92,15 @@
 
   /* ---------- table ---------- */
   .right { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); container-type:inline-size; }
-  @container (max-width: 620px) { .hide-s { display:none; } }
+  .show-s { display:none; }
+  @container (max-width: 620px) { .hide-s { display:none; } .show-s { display:block; } }
+  .per { font-size:11px; color:var(--muted); margin-top:3px; max-width:230px; }
+  .per .pd { white-space:nowrap; }
+  .per .pt { display:flex; flex-wrap:wrap; justify-content:space-between; gap:0 8px; }
+  .per .pt b { white-space:nowrap; }
+  .per .bar { height:4px; border-radius:2px; background:var(--line); margin-top:3px; overflow:hidden; }
+  .per .bar i { display:block; height:100%; background:var(--accent); border-radius:2px; }
+  .per.done .bar i { background:var(--fresh); }
   .ttool { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
   .ttool input[type=search] { flex:1 1 160px; min-width:0; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 8px; }
   .ttool select { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; }
@@ -147,6 +155,7 @@
     .right { min-height:60vh; }
     .tscroll { overflow:visible; }
     .hide-s { display:none; }
+    .show-s { display:block; }
 
     /* one-line header: title, logger pill, Lock, Reports; status chips in one swipeable row */
     header { gap:6px 8px; padding:8px 10px; }
@@ -485,19 +494,29 @@
   const saveHidden = () => store.set('hiddenCats', [...hiddenCats]);
 
   // ---------- table ----------
+  // Tracking period: start → end dates, day count and a progress bar.
+  const fmtD = d => new Date(d + 'T00:00:00+08:00').toLocaleDateString('en-SG', { day:'2-digit', month:'short', year:'numeric', timeZone:SGT });
+  function periodHTML(v, a, cls) {
+    if (!a.text) return '';
+    const pct = a.n === -1 ? 0 : a.n === 2 ? 100 : Math.round(a.n * 100);
+    return `<div class="per ${cls || ''} ${a.n === 2 ? 'done' : ''}" title="Tracking period">
+      <div class="pt"><span class="pd">${esc(fmtD(v.start_date))} → ${esc(fmtD(v.end_date))}</span><b>${esc(a.text)}</b></div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Period progress"><i style="width:${pct}%"></i></div></div>`;
+  }
   function rowHTML(v) {
       const p = latest[v.id] || {}, a = period(v);
       const status = [p.nav_status, p.speed_kn != null ? p.speed_kn + ' kn' : ''].filter(Boolean).join(' · ');
       return `<tr data-id="${esc(v.id)}" class="${v.id === selectedId ? 'sel' : ''}">
         <td class="idc">${esc(v.id)}</td>
         <td><div class="vn">${v.category ? `<i class="dot" style="background:${catColor(v.category)}" title="${esc(v.category)}"></i>` : ''}${esc(v.vessel_name)}</div>
-            <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div></td>
+            <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>${periodHTML(v, a, 'show-s')}</td>
         <td class="nowrap"><i class="dot ${v._state}"></i>${p.last_seen_utc ? esc(age(p.last_seen_utc)) : '<span class="sub">none</span>'}
             ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}</td>
         <td>${p.latitude != null ? esc(v._place || coord(p.latitude, p.longitude)) : '<span class="sub">—</span>'}
-            ${p.destination ? `<div class="sub">→ ${esc(p.destination)}</div>` : ''}</td>
+            ${p.destination ? `<div class="sub">→ ${esc(p.destination)}</div>` : ''}
+            ${status ? `<div class="sub show-s">${esc(status)}</div>` : ''}</td>
         <td class="hide-s sub">${esc(status) || '—'}</td>
-        <td class="hide-s sub nowrap">${esc(a.text)}</td>
+        <td class="hide-s">${periodHTML(v, a) || '<span class="sub">—</span>'}</td>
         <td>${v.imo ? `<a class="vf" href="https://www.vesselfinder.com/vessels/details/${encodeURIComponent(v.imo)}" target="_blank" rel="noopener" title="Open in VesselFinder" aria-label="Open ${esc(v.vessel_name)} in VesselFinder">↗</a>` : ''}</td>
       </tr>`;
   }
