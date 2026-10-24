@@ -1,0 +1,29 @@
+name: Check vessel list
+
+# Runs whenever vessels.csv is changed: emails a list of mistakes (wrong MMSI/IMO, bad dates, duplicate IDs).
+on:
+  push:
+    paths:
+      - vessels.csv
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check vessels.csv
+        env:
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        run: python scripts/check_vessels.py --email

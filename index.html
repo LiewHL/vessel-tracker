@@ -88,6 +88,19 @@
   .plist td:last-child { white-space:normal; }
   .plist th { color:var(--muted); font-weight:600; border-top:0; position:sticky; top:0; background:var(--card); }
   .pchip { display:inline-block; background:var(--accent-soft); color:var(--accent); border-radius:999px; padding:1px 8px; margin:2px 2px 0 0; font-weight:600; }
+  .shipcard { width:min(400px, calc(100% - 12px)); padding:12px 14px; }
+  .shipcard h3 { margin:0; font-size:14px; } .shipcard h4 { margin:12px 0 4px; font-size:12px; color:var(--muted); }
+  .shipcard .per { max-width:none; margin:6px 0 4px; }
+  table.kv { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.kv th { text-align:left; font-weight:600; color:var(--muted); padding:3px 10px 3px 0; white-space:nowrap; vertical-align:top; border:0; position:static; }
+  table.kv td { padding:3px 0; border:0; white-space:normal; }
+  .callmk { background:none; border:0; }
+  .cm { display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:4px; font:700 10px/1 system-ui,sans-serif; color:#fff; border:1.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3); }
+  .cm.b { background:#0b5c8c; } .cm.a { background:#c98a00; } .cm.o { background:#6250d6; }
+  .tlwrap { position:absolute; inset:0; overflow:auto; padding:8px 10px; }
+  svg.tl text { font:11px system-ui,sans-serif; fill:var(--ink); } svg.tl .ax { fill:var(--muted); }
+  svg.tl .grid { stroke:var(--line); } svg.tl .today { stroke:var(--old); stroke-width:1.5; } svg.tl .todayt { fill:var(--old); }
+  svg.tl g.bar { cursor:pointer; } svg.tl g.bar:hover rect, svg.tl g.bar:focus rect { opacity:.8; } svg.tl g.bar:focus { outline:none; }
   .msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--muted); }
 
   /* ---------- table ---------- */
@@ -253,9 +266,9 @@
   const CAT_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'];
   const CAT_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
   const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
-  const MODES = { fleet:'Fleet map', route:'Vessel route / history', live:'Live (VesselFinder)' };
+  const MODES = { fleet:'Fleet map', route:'Vessel route / history', live:'Live (VesselFinder)', timeline:'Timeline (periods)' };
 
-  let vessels = [], latest = {}, ports = null, positionsPromise = null, catOrder = [];
+  let vessels = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
   let filter = 'all', catFilter = '', query = '', sortKey = '', sortDir = 1, selectedId = '';
   const store = {
     get(k, d) { try { const v = localStorage.getItem('vt-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -271,7 +284,7 @@
   const isDark = () => window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
   // ---------- passcode lock: data is stored encrypted in vault/ (see scripts/vault.py) ----------
   const VAULT = { on:false, key:null, meta:null };
-  const PLAIN = new Set(['vessels.csv', 'assets/ports.json']);
+  const PLAIN = new Set(['vessels.csv', 'assets/ports.json', 'assets/mid.json']);
   const CHECK = 'vessel-tracker-vault-ok', KEY_SLOT = 'vt-vault-key';
   const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
   const b64e = u => btoa(String.fromCharCode(...u));
@@ -381,8 +394,64 @@
     for (const p of ports) { const dl = ((p[3] - lon + 540) % 360) - 180, d = (p[2] - lat) ** 2 + (dl * k) ** 2; if (d < bd) { bd = d; best = p; } }
     const r = Math.PI / 180, y = Math.sin((lon - best[3]) * r) * Math.cos(lat * r);
     const x = Math.cos(best[2] * r) * Math.sin(lat * r) - Math.sin(best[2] * r) * Math.cos(lat * r) * Math.cos((lon - best[3]) * r);
-    return { name:where(best[0], best[1]), dist:nm(best[2], best[3], lat, lon), dir:DIRS[Math.floor(((Math.atan2(y, x) / r + 360) % 360 + 22.5) / 45) % 8] };
+    return { name:where(best[0], best[1]), country:best[1], dist:nm(best[2], best[3], lat, lon), dir:DIRS[Math.floor(((Math.atan2(y, x) / r + 360) % 360 + 22.5) / 45) % 8] };
   }
+  // ---------- ship time, flag, type, port calls (same rules as scripts/insights.py) ----------
+  const zoneOf = lon => Math.max(-12, Math.min(12, Math.floor((lon + 7.5) / 15)));
+  function shipTime(lon) {
+    if (lon == null || isNaN(lon)) return '';
+    const z = zoneOf(lon), d = new Date(Date.now() + z * 36e5);
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} (UTC${z >= 0 ? '+' : '−'}${Math.abs(z)})`;
+  }
+  const flagOf = mmsi => mids[String(mmsi || '').slice(0, 3)] || '';
+  function typeText(c) {
+    c = Number(c); if (!c) return '';
+    const g = [[20,29,'Wing in ground'],[30,30,'Fishing'],[31,32,'Towing'],[33,33,'Dredging'],[34,34,'Diving'],[35,35,'Military'],[36,36,'Sailing'],[37,37,'Pleasure craft'],[40,49,'High-speed craft'],[50,50,'Pilot'],[51,51,'Search and rescue'],[52,52,'Tug'],[53,53,'Port tender'],[54,54,'Anti-pollution'],[55,55,'Law enforcement'],[58,58,'Medical transport'],[60,69,'Passenger'],[70,79,'Cargo'],[80,89,'Tanker'],[90,99,'Other']];
+    const m = g.find(([a, b]) => c >= a && c <= b); return m ? m[2] : '';
+  }
+  // fx: [{t, lat, lon, sp, st}] sorted by time -> [{kind, place, country, start, end, departed, lat, lon}]
+  function portCalls(fx) {
+    const calls = []; let cur = null;
+    const close = dep => { if (cur) { cur.departed = dep ?? null; calls.push(cur); } cur = null; };
+    for (const f of fx) {
+      if (cur && f.t - cur.end > 36 * 36e5) close();
+      const st = (f.st || '').toLowerCase(), sp = f.sp === '' || f.sp == null ? null : Number(f.sp);
+      if (!(st === 'moored' || st === 'at anchor' || (sp != null && sp < 0.5))) { close(f.t); continue; }
+      const np = nearestPort(f.lat, f.lon), d = np ? np.dist : 1e9;
+      const kind = st === 'moored' || (st !== 'at anchor' && d <= 5) ? 'Berthed' : d <= NEAR_NM ? 'At anchor' : 'Stopped offshore';
+      const place = np ? (d <= NEAR_NM ? np.name : `${Math.round(d)} nm from ${np.name}`) : '';
+      if (cur && cur.kind === kind && nm(cur.lat, cur.lon, f.lat, f.lon) <= 10) { cur.end = f.t; continue; }
+      close(f.t);
+      cur = { kind, place, country:np && d <= NEAR_NM ? np.country : '', start:f.t, end:f.t, lat:f.lat, lon:f.lon };
+    }
+    if (cur) { cur.departed = null; calls.push(cur); }
+    return calls;
+  }
+  const fmtH = h => h < 48 ? `${Math.round(h)} h` : `${(h / 24).toFixed(1)} d`;
+  function stayText(c) {
+    const lo = (c.end - c.start) / 36e5;
+    if (!c.departed) return `at least ${fmtH(lo)}`;
+    const hi = (c.departed - c.start) / 36e5;
+    return fmtH(lo) === fmtH(hi) ? `about ${fmtH(hi)}` : `${fmtH(lo)}–${fmtH(hi)}`;
+  }
+  const shipFixes = (rows, id) => rows.filter(r => r.id === id).map(r => ({ t:Date.parse(r.ais_time_utc), lat:parseFloat(r.latitude), lon:parseFloat(r.longitude), sp:r.speed_kn, st:r.nav_status, dest:r.destination }))
+    .filter(f => !isNaN(f.t) && !isNaN(f.lat) && !isNaN(f.lon)).sort((a, b) => a.t - b.t);
+
+  // ---------- vessels.csv check (same rules as scripts/check_vessels.py) ----------
+  function imoOk(imo) { if (!/^\d{7}$/.test(imo)) return false; const d = [...imo].map(Number); return d.slice(0, 6).reduce((s, x, i) => s + x * (7 - i), 0) % 10 === d[6]; }
+  function checkRoster(list) {
+    const out = [], seen = {};
+    list.forEach(v => {
+      const who = `${v.id || '(no ID)'} ${v.vessel_name || ''}`.trim(), mmsi = String(v.mmsi || '').replace(/\D/g, ''), imo = String(v.imo || '').replace(/\D/g, '');
+      if (seen[v.id]) out.push(`${who}: ID used twice`); seen[v.id] = 1;
+      if (mmsi.length !== 9) out.push(`${who}: MMSI must be 9 digits`);
+      if (imo && !imoOk(imo)) out.push(`${who}: IMO ${imo} is not valid`);
+      ['start_date', 'end_date'].forEach(k => { if (v[k] && !/^\d{4}-\d{2}-\d{2}$/.test(v[k])) out.push(`${who}: ${k} must be YYYY-MM-DD`); });
+      if (v.start_date && v.end_date && v.end_date < v.start_date) out.push(`${who}: end_date is before start_date`);
+    });
+    return out;
+  }
+
   function placeLabel(lat, lon) {
     const n = nearestPort(lat, lon); if (!n) return '';
     if (n.dist <= 3) return 'At ' + n.name;
@@ -455,12 +524,12 @@
   function banner(html) { const b = $('banner'); b.style.display = 'block'; b.innerHTML += (b.innerHTML ? '<br>' : '') + html; }
   function renderReports(list) {
     const item = r => {
-      const m = r.kind === 'monthly';
+      const m = r.kind === 'monthly' || r.kind === 'quarterly', q = r.kind === 'quarterly';
       const stats = m ? `${r.heard ?? 0} of ${r.tracked} heard · ${r.positions ?? 0} positions` : `${r.fresh} recent · ${r.stale} 3–7 d · ${r.old} >7 d · ${r.none} none`;
-      return `<li><span><span class="tag ${m ? 'm' : 'w'}">${m ? 'Monthly' : 'Weekly'}</span><a href="reports/${encodeURIComponent(r.file)}" data-file="${esc(r.file)}" target="_blank" rel="noopener"><b>${m ? '' : 'Week '}${esc(r.period)}</b></a></span><span class="sub">${stats}</span></li>`;
+      return `<li><span><span class="tag ${m ? 'm' : 'w'}">${q ? 'Quarterly' : m ? 'Monthly' : 'Weekly'}</span><a href="reports/${encodeURIComponent(r.file)}" data-file="${esc(r.file)}" target="_blank" rel="noopener"><b>${m ? '' : 'Week '}${esc(r.period)}</b></a></span><span class="sub">${stats}</span></li>`;
     };
     $('reports').innerHTML = list.length
-      ? list.filter(r => r.kind === 'monthly').slice(0, 6).map(item).join('') + list.filter(r => r.kind !== 'monthly').slice(0, 8).map(item).join('')
+      ? list.filter(r => r.kind === 'quarterly').slice(0, 4).map(item).join('') + list.filter(r => r.kind === 'monthly').slice(0, 6).map(item).join('') + list.filter(r => r.kind === 'weekly' || !r.kind).slice(0, 8).map(item).join('')
       : '<li class="sub">The first report appears after the first Monday (weekly) or 1st of the month (monthly).</li>';
     $('reports').onclick = e => { const a = e.target.closest('a[data-file]'); if (a && VAULT.on) { e.preventDefault(); openReport(a.dataset.file); } };
     const btn = $('reportsBtn'), pop = $('reportsPop');
@@ -511,7 +580,8 @@
         <td><div class="vn">${v.category ? `<i class="dot" style="background:${catColor(v.category)}" title="${esc(v.category)}"></i>` : ''}${esc(v.vessel_name)}</div>
             <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>${periodHTML(v, a, 'show-s')}</td>
         <td class="nowrap"><i class="dot ${v._state}"></i>${p.last_seen_utc ? esc(age(p.last_seen_utc)) : '<span class="sub">none</span>'}
-            ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}</td>
+            ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}
+            ${p.longitude != null ? `<div class="sub" title="Approximate ship time (nautical time zone)">Ship ~${esc(shipTime(p.longitude))}</div>` : ''}</td>
         <td>${p.latitude != null ? esc(v._place || coord(p.latitude, p.longitude)) : '<span class="sub">—</span>'}
             ${p.destination ? `<div class="sub">→ ${esc(p.destination)}</div>` : ''}
             ${status ? `<div class="sub show-s">${esc(status)}</div>` : ''}</td>
@@ -587,6 +657,8 @@
     if (p.mode === 'fleet') {
       tools += catOrder.length ? `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button><button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button></div>` : '';
       tools += `<button class="hbtn" data-act="fit">Fit all</button>`;
+    } else if (p.mode === 'timeline') {
+      tools += `<span class="sub">Tracking periods · click a bar to select the ship</span>`;
     } else {
       tools += `<select class="ship" aria-label="Vessel">${shipOptions(p.ship)}</select>`;
       if (p.mode === 'route') {
@@ -608,6 +680,7 @@
     const fit = p.el.querySelector('[data-act=fit]'); if (fit) fit.onclick = () => fitFleet(p);
 
     if (p.mode === 'fleet') return drawFleet(p, body);
+    if (p.mode === 'timeline') return drawTimeline(p, body);
     if (!ship) { body.innerHTML = '<div class="msg">Click a vessel in the table, or pick one above.</div>'; return; }
     if (p.mode === 'live') {
       if (!ship.imo && !ship.mmsi) { body.innerHTML = '<div class="msg">No IMO or MMSI for this vessel.</div>'; return; }
@@ -630,7 +703,7 @@
     visible().forEach(v => {
       const q = latest[v.id]; if (!q || q.latitude == null || hiddenCats.has(catOf(v))) return;
       p.markers[v.id] = L.circleMarker([q.latitude, q.longitude], { radius:v.id === selectedId ? 9 : 7, color:'#fff', weight:2, fillColor:dotColor(v), fillOpacity:1 })
-        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}<br>${esc(fmtTime(q.last_seen_utc))} SGT (${esc(age(q.last_seen_utc))})`, { direction:'top' })
+        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}<br>${esc(fmtTime(q.last_seen_utc))} SGT (${esc(age(q.last_seen_utc))})<br>Ship time ~${esc(shipTime(q.longitude))}`, { direction:'top' })
         .on('click', () => select(v.id)).addTo(m);
     });
     const leg = document.createElement('div'); leg.className = 'tinfo'; leg.setAttribute('aria-label', 'Legend');
@@ -667,10 +740,15 @@
     let from = -Infinity, to = Date.now();
     if (p.range === '7' || p.range === '30') from = Date.now() - Number(p.range) * 864e5;
     if (p.range === 'c') { from = Date.parse((p.from || sgtDate(Date.now() - 30 * 864e5)) + 'T00:00:00+08:00'); to = Date.parse((p.to || sgtDate(Date.now())) + 'T23:59:59+08:00'); }
-    const fx = rows.filter(r => r.id === ship.id).map(r => ({ t:Date.parse(r.ais_time_utc), lat:parseFloat(r.latitude), lon:parseFloat(r.longitude), sp:r.speed_kn, st:r.nav_status, dest:r.destination }))
-      .filter(f => !isNaN(f.t) && !isNaN(f.lat) && !isNaN(f.lon) && f.t >= from && f.t <= to).sort((a, b) => a.t - b.t);
+    const all = shipFixes(rows, ship.id), fx = all.filter(f => f.t >= from && f.t <= to);
+    const calls = portCalls(all).filter(c => c.end >= from && c.start <= to);
     body.innerHTML = '';
-    if (!fx.length) { body.innerHTML = `<div class="msg">No positions logged for ${esc(ship.vessel_name)} in this period.</div>`; return; }
+    const infoCard = shipCard(ship, all, calls);
+    if (!fx.length) {
+      body.innerHTML = `<div class="msg">No positions logged for ${esc(ship.vessel_name)} in this period.</div>`;
+      addInfoButton(p, body, infoCard);
+      return;
+    }
     fx.forEach(f => { f.place = placeLabel(f.lat, f.lon); f.near = nearestPort(f.lat, f.lon); });
     let dist = 0; for (let i = 1; i < fx.length; i++) dist += nm(fx[i - 1].lat, fx[i - 1].lon, fx[i].lat, fx[i].lon);
     const visited = []; fx.forEach(f => { if (f.near && f.near.dist <= NEAR_NM && !visited.includes(f.near.name)) visited.push(f.near.name); });
@@ -681,6 +759,10 @@
       const last = i === fx.length - 1;
       L.circleMarker([f.lat, f.lon], { radius:last ? 8 : 4, color:'#fff', weight:last ? 2 : 1, fillColor:col, fillOpacity:1 })
         .bindTooltip(`${esc(fmtTime(f.t))} SGT<br>${esc(f.place)}`, { direction:'top' }).addTo(m);
+    });
+    calls.forEach(c => {
+      const icon = L.divIcon({ className:'callmk', html:`<span class="cm ${c.kind === 'Berthed' ? 'b' : c.kind === 'At anchor' ? 'a' : 'o'}">${c.kind === 'Berthed' ? 'B' : c.kind === 'At anchor' ? 'A' : 'S'}</span>`, iconSize:[18, 18], iconAnchor:[9, 9] });
+      L.marker([c.lat, c.lon], { icon, keyboard:false }).bindTooltip(`<b>${esc(c.kind)}</b> ${esc(c.place)}<br>${esc(fmtTime(c.start))} → ${c.departed ? esc(fmtTime(c.departed)) : 'still there'}<br>Stopped ${esc(stayText(c))}`, { direction:'top' }).addTo(m);
     });
     m.fitBounds(pts, { padding:[30, 30], maxZoom:8 });
     const days = new Set(fx.map(f => sgtDate(f.t))).size;
@@ -698,7 +780,73 @@
     L.DomEvent && L.DomEvent.disableScrollPropagation && L.DomEvent.disableScrollPropagation(list);
     body.appendChild(list);
     const lb = info.querySelector('button');
-    lb.onclick = () => { list.hidden = !list.hidden; lb.setAttribute('aria-expanded', !list.hidden); lb.textContent = list.hidden ? 'List ▾' : 'List ▴'; };
+    lb.onclick = () => { list.hidden = !list.hidden; lb.setAttribute('aria-expanded', !list.hidden); lb.textContent = list.hidden ? 'List ▾' : 'List ▴'; if (!list.hidden) closeCard(p); };
+    addInfoButton(p, body, infoCard, () => { list.hidden = true; lb.setAttribute('aria-expanded', false); lb.textContent = 'List ▾'; });
+  }
+
+  // ---------- ship info card (particulars, period, ship time, countries, port calls) ----------
+  function shipCard(v, all, calls) {
+    const q = latest[v.id] || {}, a = period(v);
+    const rowsKV = [
+      ['Flag', flagOf(v.mmsi)], ['Type', typeText(q.ship_type)],
+      ['Size', q.length_m ? `${q.length_m} × ${q.beam_m} m` : ''], ['Draught', q.draught_m ? `${q.draught_m} m` : ''],
+      ['Call sign', q.callsign], ['IMO / MMSI', [v.imo, v.mmsi].filter(Boolean).join(' / ')],
+      ['Destination', q.destination], ['ETA (AIS)', q.eta],
+      ['Last seen', q.last_seen_utc ? `${fmtTime(q.last_seen_utc)} SGT (${age(q.last_seen_utc)})` : 'none'],
+      ['Ship time', q.longitude != null ? `~${shipTime(q.longitude)}` : ''],
+    ].filter(([, x]) => x);
+    const countries = []; all.forEach(f => { const np = nearestPort(f.lat, f.lon); if (np && np.dist <= NEAR_NM && np.country && !countries.includes(np.country)) countries.push(np.country); });
+    const recent = portCalls(all).slice(-6).reverse();
+    return `<h3>${esc(v.id)} · ${esc(v.vessel_name)}</h3>
+      <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>
+      ${periodHTML(v, a)}
+      <table class="kv">${rowsKV.map(([k, x]) => `<tr><th>${esc(k)}</th><td>${esc(x)}</td></tr>`).join('')}</table>
+      <h4>Countries visited (all logged)</h4><div>${countries.length ? countries.map(c => `<span class="pchip">${esc(c)}</span>`).join('') : '<span class="sub">None yet</span>'}</div>
+      <h4>Recent port calls / stops</h4>
+      ${recent.length ? `<table class="kv calls">${recent.map(c => `<tr><th>${esc(c.kind)}</th><td>${esc(c.place)}<div class="sub">${esc(fmtTime(c.start))} → ${c.departed ? esc(fmtTime(c.departed)) : 'still there'} · ${esc(stayText(c))}</div></td></tr>`).join('')}</table>` : '<div class="sub">None detected yet</div>'}
+      <p class="sub">Particulars come from the ship's own AIS broadcast and fill in as it is heard. Ship time uses the nautical time zone. Port calls are estimated from logged positions.</p>`;
+  }
+  function closeCard(p) { const c = p.el.querySelector('.shipcard'), b = p.el.querySelector('[data-act=info]'); if (c) c.hidden = true; if (b) { b.setAttribute('aria-expanded', false); b.textContent = 'Info ▾'; } }
+  function addInfoButton(p, body, html, onOpen) {
+    let tinfo = p.el.querySelector('.ptool .tinfo');
+    if (!tinfo) { tinfo = document.createElement('div'); tinfo.className = 'tinfo'; p.el.querySelector('.ptool').appendChild(tinfo); }
+    const b = document.createElement('button'); b.className = 'hbtn'; b.type = 'button'; b.dataset.act = 'info'; b.setAttribute('aria-expanded', 'false'); b.textContent = 'Info ▾';
+    tinfo.appendChild(b);
+    const card = document.createElement('div'); card.className = 'overlay plist shipcard'; card.hidden = true; card.innerHTML = html;
+    if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(card); L.DomEvent.disableScrollPropagation(card); }
+    body.appendChild(card);
+    b.onclick = () => { card.hidden = !card.hidden; b.setAttribute('aria-expanded', !card.hidden); b.textContent = card.hidden ? 'Info ▾' : 'Info ▴'; if (!card.hidden && onOpen) onOpen(); };
+  }
+
+  // ---------- timeline of tracking periods ----------
+  function drawTimeline(p, body) {
+    const list = visible().filter(v => !isNaN(Date.parse(v.start_date)) && !isNaN(Date.parse(v.end_date)))
+      .sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true }));
+    if (!list.length) { body.innerHTML = '<div class="msg">No tracking periods (start_date / end_date) in vessels.csv.</div>'; return; }
+    const day = 864e5, lo0 = Math.min(...list.map(v => Date.parse(v.start_date))), hi0 = Math.max(...list.map(v => Date.parse(v.end_date)));
+    const lo = new Date(lo0), hi = new Date(hi0);
+    const start = Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth(), 1), end = Date.UTC(hi.getUTCFullYear(), hi.getUTCMonth() + 1, 1);
+    const LW = 150, W = Math.max(640, body.clientWidth || 640), RH = 24, TOP = 28, H = TOP + RH * list.length + 10;
+    const x = t => LW + (W - LW - 10) * Math.max(0, Math.min(1, (t - start) / (end - start)));
+    let svg = `<svg class="tl" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Timeline of tracking periods">`;
+    for (let d = new Date(start); d.getTime() < end; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) {
+      const xx = x(d.getTime()), lbl = d.toLocaleDateString('en-SG', { month:'short', ...(d.getUTCMonth() === 0 || d.getTime() === start ? { year:'numeric' } : {}), timeZone:'UTC' });
+      svg += `<line x1="${xx}" y1="${TOP - 8}" x2="${xx}" y2="${H}" class="grid"/><text x="${xx + 3}" y="${TOP - 12}" class="ax">${esc(lbl)}</text>`;
+    }
+    list.forEach((v, i) => {
+      const y = TOP + i * RH, s = Date.parse(v.start_date), e = Date.parse(v.end_date) + day, a = period(v);
+      const col = v.category ? catColor(v.category) : css('--none');
+      svg += `<g class="bar" data-id="${esc(v.id)}" tabindex="0" role="button" aria-label="${esc(v.id)} ${esc(v.vessel_name)}">
+        <text x="0" y="${y + 15}" class="lb"><tspan font-weight="700">${esc(v.id)}</tspan> ${esc(v.vessel_name.slice(0, 16))}</text>
+        <rect x="${x(s)}" y="${y + 4}" width="${Math.max(2, x(e) - x(s))}" height="${RH - 9}" rx="3" fill="${col}" ${v.id === selectedId ? 'stroke="var(--ink)" stroke-width="2"' : ''}>
+        <title>${esc(v.id)} ${esc(v.vessel_name)}: ${esc(v.start_date)} → ${esc(v.end_date)} · ${esc(a.text)}</title></rect></g>`;
+    });
+    const now = Date.now();
+    if (now >= start && now <= end) svg += `<line x1="${x(now)}" y1="${TOP - 8}" x2="${x(now)}" y2="${H}" class="today"/><text x="${x(now) + 3}" y="${H - 2}" class="todayt">today</text>`;
+    body.innerHTML = `<div class="tlwrap">${svg}</svg></div>`;
+    body.querySelectorAll('g.bar').forEach(g => {
+      const go = () => select(g.dataset.id); g.onclick = go; g.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
   }
   function refreshAll() { renderTable(); P.forEach(p => p.mode === 'fleet' && renderPane(p)); }
 
@@ -745,7 +893,8 @@
     vessels = parseCSV(csv).filter(v => v.id);
     let run, reports;
     [latest, run, reports, ports] = await Promise.all([getJSON('data/latest.json', {}), getJSON('data/run_log.json', null),
-      getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || [])]);
+      getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || []),
+      getJSON('assets/mid.json', { mid:{} }).then(d => { mids = d.mid || {}; })]);
     const order = { fresh:0, stale:1, old:2, none:3 };
     vessels.forEach(v => {
       const p = latest[v.id] || {};
@@ -775,6 +924,8 @@
 
     renderRun(run); renderChips(); renderReports(reports); renderTable(); setupGutters();
     ['pane0', 'pane1'].forEach((id, i) => { const p = Object.assign({ mode:'fleet', ship:'', range:'30' }, panes[i] || {}, { el:$(id), markers:{} }); if (!MODES[p.mode]) p.mode = 'fleet'; P.push(p); renderPane(p); });
+    const issues = checkRoster(vessels);
+    if (issues.length) banner(`<b>vessels.csv needs checking (${issues.length}):</b> ${issues.slice(0, 6).map(esc).join(' · ')}${issues.length > 6 ? ' …' : ''}`);
     if (vessels.some(v => /^SAMPLE /i.test(v.vessel_name))) banner('Showing <b>sample vessels</b>. Edit <b>vessels.csv</b> with the real ship names, IMO and MMSI numbers to start tracking.');
   }
   start();

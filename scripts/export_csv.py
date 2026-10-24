@@ -2,10 +2,12 @@
 
   python scripts/export_csv.py weekly  <out_dir>
   python scripts/export_csv.py monthly <out_dir> [YYYY-MM]
+  python scripts/export_csv.py quarterly <out_dir> [YYYY-Qn]
 
-Writes three Excel-friendly CSV files (UTF-8 with BOM) and prints their paths:
+Writes four Excel-friendly CSV files (UTF-8 with BOM) and prints their paths:
   positions_<period>.csv     every logged position in the period
   ship_summary_<period>.csv  one row per ship for the period
+  port_calls_<period>.csv    port calls / stops detected in the period
   full_history_<date>.csv    every position logged so far
 """
 import csv
@@ -16,6 +18,7 @@ from datetime import timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import haversine_nm, load_roster, now_utc, place_label, places_visited, read_positions  # noqa: E402
 from weekly_report import period_progress, load_fixes, period_bounds  # noqa: E402
+from insights import port_calls  # noqa: E402
 
 SGT = timezone(timedelta(hours=8))
 
@@ -87,6 +90,20 @@ def main():
         "Period progress", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
         "Days heard", "Positions in period", "Distance logged (nm)", "Places visited (within 30 nm)",
     ], summary))
+
+    calls = []
+    for v in roster:
+        hist = [f for f in fixes.get(v["id"], []) if f["t"] <= as_of]
+        for c in port_calls(hist):
+            if c["end"] >= start and c["start"] <= as_of:
+                calls.append([v["id"], v["vessel_name"], c["kind"], c["place"], c["country"],
+                              sgt(c["start"]), sgt(c["end"]), sgt(c["departed"]), c["hours"],
+                              round((c["departed"] - c["start"]).total_seconds() / 3600, 1) if c["departed"] else "",
+                              c["lat"], c["lon"]])
+    paths.append(write(os.path.join(out_dir, f"port_calls_{label}.csv"), [
+        "ID", "Vessel", "Type", "Place", "Country", "First logged stopped (SGT)", "Last logged stopped (SGT)",
+        "Logged under way again (SGT)", "Stopped at least (h)", "Stopped at most (h)", "Latitude", "Longitude",
+    ], calls))
 
     paths.append(write(os.path.join(out_dir, f"full_history_to_{ref.astimezone(SGT).date().isoformat()}.csv"),
                        POS_HEADER, position_rows(fixes, roster)))

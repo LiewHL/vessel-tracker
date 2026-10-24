@@ -7,6 +7,8 @@ __pycache__/
 data/positions.csv
 data/latest.json
 data/run_log.json
+data/alerts_state.json
+data/alerts_log.json
 reports/*.html
 reports/*.md
 reports/index.json

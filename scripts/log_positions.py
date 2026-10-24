@@ -53,6 +53,39 @@ def valid_position(lat, lon):
     return True
 
 
+STATIC_KEYS = ("ship_type", "length_m", "beam_m", "draught_m", "callsign", "eta")
+
+
+def static_info(body):
+    """Ship particulars from an AIS ShipStaticData message (only values that look valid)."""
+    out = {}
+    t = body.get("Type")
+    if isinstance(t, int) and 20 <= t <= 99:
+        out["ship_type"] = t
+    dim = body.get("Dimension") or {}
+    try:
+        length = int(dim.get("A", 0)) + int(dim.get("B", 0))
+        beam = int(dim.get("C", 0)) + int(dim.get("D", 0))
+        if 5 < length < 500 and 2 < beam < 80:
+            out["length_m"], out["beam_m"] = length, beam
+    except (TypeError, ValueError):
+        pass
+    d = _num(body.get("MaximumStaticDraught"))
+    if d and 0 < d < 30:
+        out["draught_m"] = round(d, 1)
+    cs = str(body.get("CallSign") or "").replace("@", "").strip()
+    if cs:
+        out["callsign"] = cs
+    eta = body.get("Eta") or {}
+    try:
+        mo, dy, hr, mi = (int(eta.get(k, 0)) for k in ("Month", "Day", "Hour", "Minute"))
+        if 1 <= mo <= 12 and 1 <= dy <= 31 and hr < 24 and mi < 60:
+            out["eta"] = f"{dy:02d}/{mo:02d} {hr:02d}:{mi:02d} UTC"
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
 def handle_message(msg, state, wanted):
     """Update `state` with one decoded AISStream message.
 
@@ -71,6 +104,9 @@ def handle_message(msg, state, wanted):
         dest = str(body.get("Destination") or "").replace("@", "").strip()
         if dest:
             state["destinations"][mmsi] = dest
+        info = static_info(body)
+        if info:
+            state.setdefault("static", {})[mmsi] = info
         return mmsi
 
     if mtype not in POSITION_TYPES:
@@ -187,13 +223,20 @@ def save_results(roster, state, started, listen_minutes, status):
             "ais_time_utc": fix["ais_time_utc"],
         }
         rows.append(row)
-        latest[v["id"]] = {
+        keep = {k: val for k, val in latest.get(v["id"], {}).items() if k in STATIC_KEYS}
+        latest[v["id"]] = {**keep,
             "id": v["id"], "vessel_name": v["vessel_name"], "mmsi": mmsi, "imo": v["imo"],
             "latitude": fix["latitude"], "longitude": fix["longitude"],
             "speed_kn": fix["speed_kn"], "course_deg": fix["course_deg"],
             "nav_status": fix["nav_status"], "destination": dest,
             "last_seen_utc": fix["ais_time_utc"], "ship_name_ais": fix["ship_name_ais"],
         }
+    # Ship particulars (type, size, draught, call sign, ETA) are kept even when no position was heard.
+    for mmsi, info in state.get("static", {}).items():
+        v = by_mmsi.get(mmsi)
+        if v:
+            entry = latest.setdefault(v["id"], {"id": v["id"], "vessel_name": v["vessel_name"], "mmsi": mmsi, "imo": v["imo"]})
+            entry.update(info)
     rows.sort(key=lambda r: r["id"])
     if rows:
         append_positions(rows)

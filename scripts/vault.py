@@ -37,7 +37,8 @@ APPEND_ONLY = {"data/positions.csv"}
 
 def protected_paths():
     """Relative paths of the readable files that must never be published."""
-    fixed = ["data/positions.csv", "data/latest.json", "data/run_log.json", "reports/index.json"]
+    fixed = ["data/positions.csv", "data/latest.json", "data/run_log.json", "reports/index.json",
+             "data/alerts_state.json", "data/alerts_log.json"]
     found = [os.path.relpath(p, ROOT).replace(os.sep, "/")
              for pat in ("reports/*.html", "reports/*.md") for p in glob.glob(os.path.join(ROOT, pat))]
     return sorted(set(fixed + found))

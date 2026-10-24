@@ -1,4 +1,6 @@
-"""Weekly and monthly summary reports.
+"""Weekly, monthly and quarterly summary reports.
+
+  python scripts/weekly_report.py --quarterly [--quarter 2026-Q4]   quarterly one-page summary
 
   python scripts/weekly_report.py             weekly report (last 7 days)
   python scripts/weekly_report.py --monthly   monthly report (previous calendar month)
@@ -22,13 +24,18 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from insights import (  # noqa: E402
+    active_in, category_colours, countries_visited, port_calls, timeline_svg, upcoming_changes,
+)
 from common import (  # noqa: E402
-    LATEST, REPORT_INDEX, REPORTS_DIR, freshness, haversine_nm, load_roster,
+    DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, freshness, haversine_nm, load_roster,
     now_utc, parse_iso, place_label, places_visited, read_json, read_positions,
     write_json,
 )
 
 SGT = timezone(timedelta(hours=8))
+ALERT_LOG = os.path.join(DATA_DIR, "alerts_log.json")
+WORD = {"weekly": "week", "monthly": "month", "quarterly": "quarter"}
 LABEL = {"fresh": "Seen in last 3 days", "stale": "3 to 7 days old",
          "old": "Over 7 days old", "none": "No position yet"}
 
@@ -105,6 +112,19 @@ def period_bounds(kind, ref, month=None):
         start = ref - timedelta(days=7)
         label = f"{start.astimezone(SGT).strftime('%d %b')} – {ref.astimezone(SGT).strftime('%d %b %Y')}"
         return start, ref, label, ref.astimezone(SGT).date().isoformat(), 7
+    if kind == "quarterly":
+        if month:                       # "2026-Q4"
+            y, q = int(month[:4]), int(month[-1])
+        else:                           # previous quarter in Singapore time
+            local = ref.astimezone(SGT)
+            q = (local.month - 1) // 3      # 0 = we are in Q1, so report the previous year's Q4
+            y, q = (local.year, q) if q else (local.year - 1, 4)
+        sm = 3 * (q - 1) + 1
+        start = datetime(y, sm, 1, tzinfo=SGT)
+        end = datetime(y + (sm == 10), (sm + 2) % 12 + 1, 1, tzinfo=SGT)
+        days = (end.date() - start.date()).days
+        return (start.astimezone(timezone.utc), end.astimezone(timezone.utc),
+                f"Q{q} {y} ({start:%b}–{(end - timedelta(days=1)):%b %Y})", f"{y:04d}-Q{q}", days)
     if month:
         y, m = (int(x) for x in month.split("-"))
     else:  # previous calendar month in Singapore time
@@ -150,23 +170,33 @@ def build(kind="weekly", ref=None, month=None):
         prog_text, prog_pct = period_progress(v, as_of.astimezone(SGT).date())
         if state in ("old", "none") and prog_text != "Completed":
             follow_up.append(v)
+        calls = [c for c in port_calls(history) if c["end"] >= start and c["start"] <= as_of]
         rows.append({
             "v": v, "last": last, "seen": seen, "state": state, "track": in_period,
             "dist": dist, "days": days_heard, "prog": prog_text, "pct": prog_pct,
             "first": in_period[0] if in_period else None,
+            "calls": calls, "countries": countries_visited(in_period),
+            "active": active_in(v, start.astimezone(SGT).date(), as_of.astimezone(SGT).date()),
         })
+
+    today = ref.astimezone(SGT).date()
+    soon_end, soon_start = upcoming_changes(roster, today, 14)
+    alerts = [a for a in read_json(ALERT_LOG, []) if start <= (parse_iso(a.get("t")) or start) <= as_of]
+    ctx = {"roster": roster, "today": today, "start": start, "soon_end": soon_end, "soon_start": soon_start,
+           "alerts": alerts}
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
     fname = f"{kind}-{tag}.html"
     with open(os.path.join(REPORTS_DIR, fname), "w", encoding="utf-8") as f:
         f.write(render_html(kind, rows, counts, follow_up, period, as_of, ref, ndays,
-                            total_fixes, heard_ships))
+                            total_fixes, heard_ships, ctx))
 
     summary = {
         "kind": kind, "date": tag, "file": fname, "period": period,
         "tracked": len(roster), "fresh": counts["fresh"], "stale": counts["stale"],
         "old": counts["old"], "none": counts["none"], "heard": heard_ships,
         "positions": total_fixes, "follow_up": [v["id"] for v in follow_up],
+        "port_calls": sum(len(r["calls"]) for r in rows), "alerts": len(alerts),
     }
     index = [r for r in read_json(REPORT_INDEX, []) if r.get("file") != fname]
     for r in index:
@@ -174,14 +204,17 @@ def build(kind="weekly", ref=None, month=None):
     index = sorted([summary] + index, key=lambda r: r.get("date", ""), reverse=True)
     write_json(REPORT_INDEX, index[:160])
 
-    title = "Weekly" if kind == "weekly" else "Monthly"
+    title = kind.capitalize()
+    w = WORD[kind]
     lines = [f"{title} vessel tracking summary for {period}.", "",
              f"- Ships tracked: {len(roster)}"]
-    if kind == "monthly":
-        lines += [f"- Ships heard at least once this month: {heard_ships}",
-                  f"- Positions logged this month: {total_fixes}"]
+    if kind != "weekly":
+        lines += [f"- Ships heard at least once this {w}: {heard_ships}",
+                  f"- Positions logged this {w}: {total_fixes}"]
+    lines += [f"- Port calls / stops this {w}: {summary['port_calls']}",
+              f"- Alerts this {w}: {len(alerts)}"]
     lines += [
-        f"- Position in last 3 days{' of the month' if kind == 'monthly' else ''}: {counts['fresh']}",
+        f"- Position in last 3 days{' of the ' + w if kind != 'weekly' else ''}: {counts['fresh']}",
         f"- Position 3 to 7 days old: {counts['stale']}",
         f"- Position over 7 days old: {counts['old']}",
         f"- No position yet: {counts['none']}",
@@ -189,8 +222,13 @@ def build(kind="weekly", ref=None, month=None):
     if follow_up:
         lines += ["", "Ships to follow up (no recent position): "
                   + ", ".join(f"{v['id']} ({v['vessel_name']})" for v in follow_up)]
+    if soon_end or soon_start:
+        lines += ["", "Coming up in the next 14 days:"]
+        lines += [f"- {v['id']} {v['vessel_name']}: period ends {d:%d %b %Y}" for d, v in soon_end]
+        lines += [f"- {v['id']} {v['vessel_name']}: period starts {d:%d %b %Y}" for d, v in soon_start]
     lines += ["", "The full report is attached, and is also under Reports on the dashboard."]
-    md = "latest-summary.md" if kind == "weekly" else "latest-monthly-summary.md"
+    md = {"weekly": "latest-summary.md", "monthly": "latest-monthly-summary.md",
+          "quarterly": "latest-quarterly-summary.md"}[kind]
     with open(os.path.join(REPORTS_DIR, md), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return summary
@@ -218,10 +256,82 @@ def category_rank(cat, open_cat):
             -(int(m.group()) if m else -1), cat)
 
 
-def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
-                total_fixes, heard_ships):
+def fmt_h(h):
+    return f"{h:.0f} h" if h < 48 else f"{h / 24:.1f} d"
+
+
+def stay_text(c):
+    """Stopped time as a range: at least end-start, at most departed-start (when known)."""
+    lo = c["hours"]
+    if c["departed"]:
+        hi = (c["departed"] - c["start"]).total_seconds() / 3600
+        return f"{fmt_h(lo)}–{fmt_h(hi)}" if fmt_h(lo) != fmt_h(hi) else f"about {fmt_h(hi)}"
+    return f"at least {fmt_h(lo)}"
+
+
+def calls_table(rows, w):
     e = html.escape
-    monthly = kind == "monthly"
+    trs = []
+    for r in rows:
+        for c in r["calls"]:
+            dep = fmt_sgt(c["departed"], False) if c["departed"] else "still there at last report"
+            trs.append(f"<tr><td><b>{e(r['v']['id'])}</b> {e(r['v']['vessel_name'])}</td><td>{e(c['kind'])}</td>"
+                       f"<td>{e(c['place'] or '—')}</td><td class=mono>{e(fmt_sgt(c['start'], False))}</td>"
+                       f"<td class=mono>{e(dep)}</td><td class=num>{e(stay_text(c))}</td></tr>")
+    if not trs:
+        return f'<p class="sub">No port calls or stops detected this {w}.</p>'
+    table = ('<div class="tablewrap"><table class="small"><thead><tr><th>Ship</th><th>Type</th><th>Place</th>'
+            '<th>First logged stopped (SGT)</th><th>Logged under way again</th><th class=num>Stopped for</th></tr></thead>'
+            f'<tbody>{"".join(trs)}</tbody></table></div>'
+            '<p class="sub">Detected from logged positions: stopped (under 0.5 kn) or AIS status Moored / At anchor. '
+            '"Berthed" = within 5 nm of a port or Moored; "At anchor" = within 30 nm; "Stopped offshore" = further out '
+            '(possible anchorage or ship-to-ship work). Times are when the logger heard the ship, so real arrival is earlier '
+            'and departure later. "Stopped for" gives the range the logged positions allow.</p>')
+    if len(trs) <= 8:
+        return table
+    return f'<details class="grp"><summary><b>{len(trs)} port calls / stops</b> <span class="sub">· click to show</span></summary><div style="padding:0 8px 8px">{table}</div></details>'
+
+
+def coming_up(ctx):
+    e = html.escape
+    items = [f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}: period <b>ends</b> {d:%a %d %b %Y}</li>" for d, v in ctx["soon_end"]]
+    items += [f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}: period <b>starts</b> {d:%a %d %b %Y}</li>" for d, v in ctx["soon_start"]]
+    body = f"<ul>{''.join(items)}</ul>" if items else '<p class="sub">No periods start or end in the next 14 days.</p>'
+    return f'<section><h2>Coming up (next 14 days from {ctx["today"]:%d %b})</h2>{body}</section>'
+
+
+def alerts_section(ctx, w):
+    e = html.escape
+    if not ctx["alerts"]:
+        return f'<section><h2>Alerts this {w}</h2><p class="sub">No alerts (risk areas, storms, ships gone quiet) this {w}.</p></section>'
+    items = "".join(f"<li><span class=sub>{e(fmt_sgt(parse_iso(a['t']), False))}</span> · <b>{e(a['kind'])}</b>: {e(a['text'])}</li>"
+                    for a in ctx["alerts"])
+    return f'<section><h2>Alerts this {w} ({len(ctx["alerts"])})</h2><ul class="alerts">{items}</ul></section>'
+
+
+def places_table(rows, w):
+    e = html.escape
+    trs = []
+    for r in rows:
+        if not r["track"]:
+            continue
+        ports = places_visited(r["track"])
+        trs.append(f"<tr><td><b>{e(r['v']['id'])}</b> {e(r['v']['vessel_name'])}</td>"
+                   f"<td>{e(', '.join(r['countries'])) or '—'}</td><td>{e(' → '.join(ports)) or '—'}</td>"
+                   f"<td class=num>{len(r['calls'])}</td></tr>")
+    countries = sorted({c for r in rows for c in r["countries"]})
+    if not trs:
+        return f'<p class="sub">No positions logged this {w}.</p>'
+    return (f'<p><b>{len(countries)}</b> countr{"y" if len(countries) == 1 else "ies"} visited this {w}: {e(", ".join(countries)) or "—"}</p>'
+            '<div class="tablewrap"><table class="small"><thead><tr><th>Ship</th><th>Countries</th><th>Ports (within 30 nm, in order)</th>'
+            f'<th class=num>Port calls</th></tr></thead><tbody>{"".join(trs)}</tbody></table></div>')
+
+
+def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
+                total_fixes, heard_ships, ctx):
+    e = html.escape
+    monthly = kind != "weekly"
+    w = WORD[kind]
     map_data, groups = [], {}
     for r in rows:
         v, last, seen = r["v"], r["last"], r["seen"]
@@ -268,13 +378,25 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     if follow_up:
         items = "".join(f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}{' (' + e(v['company']) + ')' if v.get('company') else ''}</li>" for v in follow_up)
         follow = f"""<section class="callout"><h2>Follow up</h2>
-      <p>No position received for over 7 days{' by the end of the month' if monthly else ''}. The ship may be mid-ocean (outside shore-based AIS coverage), in a high-risk area with AIS switched off, or the MMSI in vessels.csv may be wrong.</p>
+      <p>No position received for over 7 days{(' by the end of the ' + w) if monthly else ''}. The ship may be mid-ocean (outside shore-based AIS coverage), in a high-risk area with AIS switched off, or the MMSI in vessels.csv may be wrong.</p>
       <ul>{items}</ul></section>"""
 
-    if monthly:
+    n_calls = sum(len(r["calls"]) for r in rows)
+    if kind == "quarterly":
+        active = sum(1 for r in rows if r["active"])
+        countries = {c for r in rows for c in r["countries"]}
+        kpis = [(active, "Ships active this quarter", "ink"), (heard_ships, "Heard at least once", "fresh"),
+                (total_fixes, "Positions logged", "ink"), (n_calls, "Port calls / stops", "ink"),
+                (len(countries), "Countries visited", "ink"), (len(ctx["alerts"]), "Alerts", "old")]
+        extra_head = "<th>Places this quarter (within 30 nm)</th>"
+        last_head = "Position at quarter end"
+        title = "Quarterly Vessel Tracking Summary"
+        map_title = "Tracks this quarter"
+        status_note = "Status is judged at the end of the quarter."
+    elif monthly:
         kpis = [(len(rows), "Ships tracked", "ink"), (heard_ships, "Heard this month", "fresh"),
                 (len(rows) - heard_ships, "Not heard this month", "old"),
-                (total_fixes, "Positions logged", "ink")]
+                (total_fixes, "Positions logged", "ink"), (n_calls, "Port calls / stops", "ink")]
         extra_head = "<th>Places this month (within 30 nm)</th>"
         last_head = "Position at month end"
         title = "Monthly Vessel Tracking Report"
@@ -296,9 +418,25 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     groups_html = "".join(
         f'<details class="grp"{" open" if cat == open_cat else ""}>'
         f'<summary><b>{e(cat)}</b> <span class="sub">· {len(g["rows"])} ship{"s" if len(g["rows"]) != 1 else ""}'
-        f' · {g["heard"]} heard this {"month" if monthly else "week"}</span></summary>'
+        f' · {g["heard"]} heard this {w}</span></summary>'
         f'<div class="tablewrap"><table>{thead}<tbody>{"".join(g["rows"])}</tbody></table></div></details>'
         for cat, g in sorted(groups.items(), key=lambda kv: category_rank(kv[0], open_cat)))
+    # timeline (monthly + quarterly): ships whose period overlaps a window around the report period
+    timeline = ""
+    if monthly:
+        ps, pe = ctx["start"].astimezone(SGT).date(), (as_of.astimezone(SGT) - timedelta(seconds=1)).date()
+        order = sorted(ctx["roster"], key=lambda v: (category_rank((v.get("category") or "No category"),
+                       latest_category({(x.get("category") or "No category") for x in ctx["roster"]})), v["id"]))
+        svg = timeline_svg(order, category_colours(ctx["roster"]), ctx["today"], highlight=(ps, pe))
+        timeline = (f'<section class="tl"><h2>Tracking periods</h2>{svg}<p class="sub">Bars are each ship\'s tracking period '
+                    f'(colour = category). The shaded band is this {w}; the red line is today.</p></section>')
+    extra_sections = alerts_section(ctx, w) + coming_up(ctx) + timeline
+    if kind != "quarterly":     # the one-pager shows port-call counts in the places table instead
+        extra_sections += f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w)}</section>'
+    if monthly:
+        extra_sections += f'<section><h2>Countries and ports visited this {w}</h2>{places_table(rows, w)}</section>'
+    if kind == "quarterly":     # one-pager: no long per-ship detail table
+        groups_html = ""
     kpi_html = "".join(f'<div class="kpi"><b style="color:var(--{c})">{n}</b><span>{e(l)}</span></div>' for n, l, c in kpis)
 
     return f"""<!doctype html>
@@ -344,6 +482,9 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
   details.grp .tablewrap {{ padding:0 8px 8px; }}
   .vbtn {{ font:inherit; font-weight:600; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; text-align:left; text-decoration:underline; text-underline-offset:2px; }}
   tr.hl td {{ background:#eaf3f9; }}
+  table.small {{ min-width:640px; font-size:13px; }}
+  ul.alerts {{ margin:0; padding-left:18px; }} ul.alerts li {{ margin:3px 0; }}
+  .tl svg {{ display:block; }}
   @media print {{ .vbtn {{ text-decoration:none; color:inherit; }} body {{ background:#fff; }} section, .kpi {{ break-inside:avoid; }} #map {{ height:300px; }} }}
 </style></head>
 <body><main>
@@ -352,9 +493,10 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
   <div class="kpis">{kpi_html}</div>
   {follow}
   <section><h2>{e(map_title)}</h2><div id="map"></div></section>
-  <section><h2>Ship details</h2>
+  {extra_sections}
+  {'' if not groups_html else f"""<section><h2>Ship details</h2>
   <p class="sub" style="margin-top:-6px">Click a vessel name to show it on the map. Click a category to open or close it.</p>
-  {groups_html}</section>
+  {groups_html}</section>"""}
   <p class="foot">Positions come from shore-based AIS receivers (AISStream), logged on a schedule. Ships far from coasts may show older positions until they come back into range. "Distance" is the straight-line sum between logged positions in the period, so it understates the real distance sailed. Places are the nearest ports from the World Port Index (NGA Pub. 150).</p>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -401,6 +543,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--monthly", action="store_true", help="build the monthly report")
     ap.add_argument("--month", help="YYYY-MM to report on (default: previous month)")
+    ap.add_argument("--quarterly", action="store_true", help="build the quarterly one-page summary")
+    ap.add_argument("--quarter", help="YYYY-Qn to report on (default: previous quarter)")
     args = ap.parse_args()
-    kind = "monthly" if args.monthly or args.month else "weekly"
-    print(json.dumps(build(kind, month=args.month), indent=2))
+    if args.quarterly or args.quarter:
+        kind, which = "quarterly", args.quarter
+    else:
+        kind, which = ("monthly" if args.monthly or args.month else "weekly"), args.month
+    print(json.dumps(build(kind, month=which), indent=2, default=str))

@@ -47,6 +47,18 @@ jobs:
           SCHEDULE_MINUTE: "17"
         run: python scripts/log_positions.py
 
+      # Risk areas, nearby storms, ships gone quiet. Never stops the log from being saved.
+      - name: Check for alerts
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        env:
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        run: python scripts/alerts.py
+
       - name: Lock and save the log to the project
         if: always() && steps.open.outcome == 'success'
         env:

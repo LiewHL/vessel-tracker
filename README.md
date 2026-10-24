@@ -104,6 +104,35 @@ Setup is done. From now on nothing needs your computer.
 | Remove a ship's logged data too, or change IDs | After editing `vessels.csv`, run **Actions > Tidy data** with every kept ship as OLD=NEW, e.g. `MR01=MR01,TS07=TS02` |
 | Run the log now | Actions > Daily position log > Run workflow |
 
+## Alerts and extra views
+
+**Alert emails** (to the same private list as the reports; one email per run with anything new):
+
+| Alert | When |
+|---|---|
+| Entered / left risk area | A ship's position is inside an area in `config/risk_areas.json`. "Left" is sent after it has been heard outside on 2 runs in a row |
+| Storm nearby | A current tropical cyclone (GDACS, gdacs.org) is within 300 nm of a ship heard in the last 3 days |
+| Gone quiet / back in contact | A ship has not been heard for 7 days although its last position was within 30 nm of a port (where coverage is normally good) |
+| Vessel list check | Each time `vessels.csv` is saved: wrong MMSI/IMO, bad dates, duplicate IDs |
+| Logger health | Daily at 09:41 SGT, if the logger has not run for 24 hours or its last run failed |
+
+Only ships inside their tracking period (or without dates) get position alerts.
+
+**Change the risk areas:** edit `config/risk_areas.json` on GitHub. Each area is a list of `[latitude, longitude]`
+corners; set `"active": false` to pause one, and update `"updated"` (shown in alert emails).
+`storm_distance_nm` sets the storm distance.
+
+**Dashboard extras:**
+- **Timeline (periods):** a map-panel option showing every ship's tracking period, with today marked. Click a bar to select the ship.
+- **Info ▾** in the route panel: flag, type, size, draught, call sign, destination/ETA (from the ship's AIS), tracking period, ship time, countries visited and recent port calls.
+- **Port calls** on the route map: B = berthed, A = at anchor, S = stopped offshore.
+- **Ship time:** under "Last seen" (nautical time zone, so approximate near coasts).
+- A banner warns if `vessels.csv` has a mistake.
+
+**Reports:** all reports now include alerts, "coming up in the next 14 days" (periods starting/ending) and port calls.
+Monthly and quarterly also include the timeline and countries/ports visited. A **quarterly one-page summary** is
+emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV file.
+
 ## Status colours
 
 - **Green:** position received in the last 3 days
