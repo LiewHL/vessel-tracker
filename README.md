@@ -2,7 +2,7 @@
 
 A hands-off tracker for a list of ships. It runs entirely on GitHub's servers, so your computer can stay off.
 
-- **Dashboard:** a web page with a map of each ship's last known position, a list with "last seen" status, and a live VesselFinder map per ship.
+- **Dashboard:** a web page with a map of each ship's last known position, a list with "last seen" status, and a ↗ link to each ship's live position on VesselFinder.
 - **Position log:** every 3 hours (02:37, 05:37, 08:37 … 23:37 SGT; an off-peak minute so GitHub is less likely to delay or skip the run), a script listens to AISStream for 30 minutes and saves the position of every ship it hears.
 - **Weekly report:** every Monday at 07:50 SGT, a printable report is created, linked on the dashboard and emailed (with CSV files) to the private recipient list.
 - **Monthly report:** on the 1st of each month at 08:20 SGT, a report for the previous month (tracks, days heard, positions logged, distance) is created, linked on the dashboard and emailed.
@@ -24,7 +24,7 @@ For each ship:
 | `vessel_name` | Ship name | Your records |
 | `company` | Shipping company | Your records |
 | `category` | Your own grouping, e.g. a group code or ship type (optional). Each category gets its own colour | You choose |
-| `imo` | 7-digit IMO number (used for the live map) | Search the ship name on vesselfinder.com |
+| `imo` | 7-digit IMO number (used for the VesselFinder link) | Search the ship name on vesselfinder.com |
 | `mmsi` | 9-digit MMSI number (used for the daily log) | Same VesselFinder page, under the ship details |
 | `start_date` | Sign-on date, format YYYY-MM-DD | Your records |
 | `end_date` | Sign-off date; **leave blank while on board** | Your records |
@@ -101,11 +101,11 @@ Setup is done. From now on nothing needs your computer.
 | You want to… | Do this |
 |---|---|
 | See where ships are | Open the dashboard link |
-| See a ship's live position | Set a map panel to **Live (VesselFinder)** and click the ship |
+| See a ship's live position | Tap **↗** next to the ship in the table (opens VesselFinder) |
 | See where a ship has been | Click the ship in the table: the top map zooms to it and the bottom map shows its route (7 d, 30 d, All or Dates) |
 | Show another category | Ships are grouped by category. The latest category (highest number, ignoring test "TS" categories) is open; click a category heading to open or close it |
 | Hide a category on the fleet map | Click its chip in the fleet map toolbar (click again to show it). Remembered on this device; the table is not affected |
-| Change what a map panel shows | Use the panel's menu: **Fleet map**, **Vessel route / history** or **Live (VesselFinder)** |
+| Change what a map panel shows | Use the panel's menu: **Fleet map**, **Vessel route / history** or **Timeline (periods)** |
 | Resize the panels | Drag the dividers between the maps and the table; your layout is remembered in your browser |
 | Get a report as PDF | Open the report, then **Print > Save as PDF** |
 | Make a monthly report for a past month | Actions > Monthly report > Run workflow, type the month as YYYY-MM |
@@ -153,7 +153,7 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV fil
 ## Limits to know
 
 - **Coastal coverage only.** AISStream uses shore-based receivers. Ships mid-ocean keep their last known position until they come back into range, so red does not mean something is wrong.
-- **Snapshots, not a continuous track.** The log records where each ship was during each 30-minute listen (every 3 hours). Use **Live** for the current position.
+- **Snapshots, not a continuous track.** The log records where each ship was during each 30-minute listen (every 3 hours). Use the ship's **↗** VesselFinder link for its current position.
 - **AIS switched off.** Ships in high-risk areas sometimes switch AIS off.
 - **AISStream is free with no uptime guarantee.** A missed day just means a gap in the log. The next day's run continues normally.
 - **Scheduled runs can start late.** GitHub may start scheduled jobs late, or occasionally skip one, at busy times. The dashboard shows **Logger late** if no run has happened for over 9 hours.
@@ -184,7 +184,7 @@ Times are in UTC (Singapore is UTC+8). In `.github/workflows/daily-log.yml`, the
 | A ship never gets a position | Check its MMSI is correct (9 digits). It may also simply be out of coastal range. |
 | No `.github` folder after upload | Click **Add file > Create new file**, type `.github/workflows/daily-log.yml` as the name, paste the file's contents, commit. Repeat for `weekly-report.yml`. |
 | Dashboard shows "Could not load vessels.csv" | Open it through the github.io link, not as a file on your computer. |
-| Live map is blank | The IMO number may be wrong, or VesselFinder has no recent data for that ship. |
+| VesselFinder link shows the wrong ship | The IMO number may be wrong (the vessel list check emails you about invalid IMOs). |
 | No weekly email | Check the email secrets and your spam folder. The report is still on the dashboard under **Reports**. |
 | Runs fail at "Unlock the data" | The `REPORT_PASSCODE` secret is missing or was changed. Set it back to the passcode the data was locked with. |
 | Dashboard keeps saying "Wrong passcode" | Check for typing errors. The passcode is the value of the `REPORT_PASSCODE` secret. |

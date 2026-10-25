@@ -101,7 +101,6 @@
   svg.tl text { font:11px system-ui,sans-serif; fill:var(--ink); } svg.tl .ax { fill:var(--muted); }
   svg.tl .grid { stroke:var(--line); } svg.tl .today { stroke:var(--old); stroke-width:1.5; } svg.tl .todayt { fill:var(--old); }
   svg.tl g.bar { cursor:pointer; } svg.tl g.bar:hover rect, svg.tl g.bar:focus rect { opacity:.8; } svg.tl g.bar:focus { outline:none; }
-  .livebtn { display:inline-block; padding:10px 16px; font-size:14px; text-decoration:none; }
   .msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--muted); }
 
   /* ---------- table ---------- */
@@ -270,7 +269,7 @@
   const CAT_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'];
   const CAT_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
   const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
-  const MODES = { fleet:'Fleet map', route:'Vessel route / history', live:'Live (opens VesselFinder)', timeline:'Timeline (periods)' };
+  const MODES = { fleet:'Fleet map', route:'Vessel route / history', timeline:'Timeline (periods)' };
 
   let vessels = [], standby = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
   let filter = 'all', catFilter = '', query = '', sortKey = '', sortDir = 1, selectedId = '';
@@ -517,11 +516,7 @@
   function tiles(map) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:12, attribution:'© OpenStreetMap' }).addTo(map);
   }
-  const v_place = v => v._place || '';
-  function vfUrl(v) {
-    const imo = (v.imo || '').replace(/\D/g, ''), mmsi = (v.mmsi || '').replace(/\D/g, '');
-    return 'https://www.vesselfinder.com/aismap?' + (imo ? 'imo=' + imo : 'mmsi=' + mmsi);
-  }
+
 
 
   // ---------- header: chips, run status, reports ----------
@@ -693,7 +688,7 @@
     }
     P.forEach(p => {
       if (p.mode === 'fleet') focusFleet(p, id);
-      else renderPane(p);                   // route / live / timeline panels show the selected ship
+      else renderPane(p);                   // route / timeline panels show the selected ship
     });
   }
 
@@ -753,19 +748,6 @@
     if (p.mode === 'fleet') return drawFleet(p, body);
     if (p.mode === 'timeline') return drawTimeline(p, body);
     if (!ship) { body.innerHTML = '<div class="msg">Click a vessel in the table, or pick one above.</div>'; return; }
-    if (p.mode === 'live') {
-      if (!ship.imo && !ship.mmsi) { body.innerHTML = '<div class="msg">No IMO or MMSI for this vessel.</div>'; return; }
-      // VesselFinder does not allow its live map inside other sites without their own code, which
-      // could read this page's unlocked data, so the live map opens on vesselfinder.com instead.
-      const q = latest[ship.id] || {}, url = `https://www.vesselfinder.com/vessels/details/${encodeURIComponent(ship.imo || ship.mmsi)}`;
-      body.innerHTML = `<div class="msg"><div>
-        <div style="font-weight:700;font-size:15px;color:var(--ink)">${esc(ship.id)} · ${esc(ship.vessel_name)}</div>
-        <div style="margin:6px 0 14px">${q.last_seen_utc ? `Last logged ${esc(age(q.last_seen_utc))} · ${esc(v_place(ship))}` : 'No logged position yet'}</div>
-        <a class="hbtn livebtn" href="${url}" target="_blank" rel="noopener noreferrer">Open live position on VesselFinder ↗</a>
-        <div class="sub" style="margin-top:10px">Opens in a new tab, separate from this dashboard.</div></div></div>`;
-      p.liveH = body.clientHeight;
-      return;
-    }
     drawRoute(p, body, ship);
   }
 
@@ -966,7 +948,6 @@
   function relayout() {
     P.forEach(p => {
       if (p.map) p.map.invalidateSize();
-      if (p.mode === 'live') { const h = p.el.querySelector('.pbody').clientHeight; if (Math.abs(h - (p.liveH || 0)) > 40) renderPane(p); }
     });
   }
   window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(relayout, 150); });
