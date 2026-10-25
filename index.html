@@ -516,13 +516,11 @@
   function tiles(map) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:12, attribution:'© OpenStreetMap' }).addTo(map);
   }
-  function vfSrcdoc(v, h) {
+  function vfUrl(v) {
     const imo = (v.imo || '').replace(/\D/g, ''), mmsi = (v.mmsi || '').replace(/\D/g, '');
-    const sel = imo ? 'var imo="' + imo + '";' : 'var mmsi="' + mmsi + '";';
-    return '<!doctype html><html><head><style>html,body{margin:0;height:100%}</style></head><body>' +
-      '<script>var width="100%";var height="' + Math.max(200, h) + '";var names=true;var zoom="6";' + sel + 'var show_track=true;<\/script>' +
-      '<script src="https://www.vesselfinder.com/aismap.js"><\/script></body></html>';
+    return 'https://www.vesselfinder.com/aismap?' + (imo ? 'imo=' + imo : 'mmsi=' + mmsi) + '&zoom=6&names=true&track=true';
   }
+
 
   // ---------- header: chips, run status, reports ----------
   function renderChips() {
@@ -743,9 +741,12 @@
       const f = document.createElement('iframe');
       // Sealed frame: VesselFinder's map code runs in its own sandbox and cannot read this page,
       // its remembered passcode key or the unlocked data.
-      f.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+      // VesselFinder's map loads straight from vesselfinder.com: a different website, so the browser
+      // keeps it fully separate from this page (it cannot read the passcode key or unlocked data).
+      // The sandbox also stops it from navigating this page; no referrer is sent.
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
       f.setAttribute('referrerpolicy', 'no-referrer');
-      f.title = 'Live position of ' + ship.vessel_name; f.srcdoc = vfSrcdoc(ship, body.clientHeight || 300);
+      f.title = 'Live position of ' + ship.vessel_name; f.src = vfUrl(ship);
       body.appendChild(f); p.liveH = body.clientHeight;
       return;
     }
