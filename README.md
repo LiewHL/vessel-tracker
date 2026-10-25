@@ -3,7 +3,7 @@
 A hands-off tracker for a list of ships. It runs entirely on GitHub's servers, so your computer can stay off.
 
 - **Dashboard:** a web page with a map of each ship's last known position, a list with "last seen" status, and a live VesselFinder map per ship.
-- **Position log:** twice a day, at 11:47 and 23:47 SGT (just before noon and midnight; an off-peak minute so GitHub is less likely to delay or skip the run), a script listens to AISStream for 30 minutes and saves the position of every ship it hears.
+- **Position log:** every 3 hours (02:37, 05:37, 08:37 … 23:37 SGT; an off-peak minute so GitHub is less likely to delay or skip the run), a script listens to AISStream for 30 minutes and saves the position of every ship it hears.
 - **Weekly report:** every Monday at 07:50 SGT, a printable report is created, linked on the dashboard and emailed (with CSV files) to the private recipient list.
 - **Monthly report:** on the 1st of each month at 08:20 SGT, a report for the previous month (tracks, days heard, positions logged, distance) is created, linked on the dashboard and emailed.
 - **Passcode lock:** positions, run records and reports are stored encrypted. The dashboard asks for the passcode before showing anything.
@@ -153,10 +153,10 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV fil
 ## Limits to know
 
 - **Coastal coverage only.** AISStream uses shore-based receivers. Ships mid-ocean keep their last known position until they come back into range, so red does not mean something is wrong.
-- **Snapshot once a day.** The log records where each ship was during that day's 30-minute listen. Use **Live map** for the current position.
+- **Snapshots, not a continuous track.** The log records where each ship was during each 30-minute listen (every 3 hours). Use **Live** for the current position.
 - **AIS switched off.** Ships in high-risk areas sometimes switch AIS off.
 - **AISStream is free with no uptime guarantee.** A missed day just means a gap in the log. The next day's run continues normally.
-- **Scheduled runs can start late.** GitHub may start scheduled jobs late, or occasionally skip one, at busy times. The dashboard shows **Logger late** if no run has happened for over 14 hours.
+- **Scheduled runs can start late.** GitHub may start scheduled jobs late, or occasionally skip one, at busy times. The dashboard shows **Logger late** if no run has happened for over 9 hours.
 
 ## Files in this project
 
@@ -173,7 +173,7 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV fil
 
 ## Changing the schedule
 
-Times are in UTC (Singapore is UTC+8). In `.github/workflows/daily-log.yml`, the line `cron: "47 3,15 * * *"` means 03:47 and 15:47 UTC = 11:47 and 23:47 SGT. Avoid minute 0 (the busiest time on GitHub). To listen longer each day, change `'30'` in `LISTEN_MINUTES` (max about 50).
+Times are in UTC (Singapore is UTC+8). In `.github/workflows/daily-log.yml`, the line `cron: "37 */3 * * *"` means every 3 hours at :37 UTC = 02:37, 05:37 … 23:37 SGT. Avoid minute 0 (the busiest time on GitHub). To listen longer each day, change `'30'` in `LISTEN_MINUTES` (max about 50).
 
 ## Troubleshooting
 

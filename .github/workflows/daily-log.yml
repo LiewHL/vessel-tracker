@@ -2,9 +2,9 @@ name: Daily position log
 
 on:
   schedule:
-    # TEMPORARY TEST: every hour at :17, 15-minute listen.
-    # Normal schedule to restore afterwards: "47 3,15 * * *" (11:47 and 23:47 SGT), 30-minute listen.
-    - cron: "17 * * * *"
+    # Every 3 hours at :37 UTC = 02:37, 05:37, 08:37, 11:37, 14:37, 17:37, 20:37, 23:37 Singapore time.
+    # (An off-peak minute: GitHub delays or skips fewer runs.) Each run listens for 30 minutes.
+    - cron: "37 */3 * * *"
   workflow_dispatch:             # lets you run it by hand from the Actions tab
     inputs:
       listen_minutes:
@@ -43,9 +43,10 @@ jobs:
       - name: Listen for ships and log positions
         env:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
-          LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '15' }}
+          LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '30' }}
           RUN_TRIGGER: ${{ github.event_name }}
-          SCHEDULE_MINUTE: "17"
+          SCHEDULE_MINUTE: "37"
+          SCHEDULE_EVERY_H: "3"
         run: python scripts/log_positions.py
 
       # Risk areas, nearby storms, ships gone quiet. Never stops the log from being saved.

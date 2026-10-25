@@ -198,9 +198,11 @@ def schedule_delay(started):
         minute = int(os.environ.get("SCHEDULE_MINUTE", "17"))
     except ValueError:
         return None
+    every = max(1, int(os.environ.get("SCHEDULE_EVERY_H", "1") or 1))
     planned = started.replace(minute=minute, second=0, microsecond=0)
-    if planned > started:
-        planned -= timedelta(hours=1)
+    planned -= timedelta(hours=planned.hour % every)          # slots are at UTC hours 0, every, 2*every ...
+    while planned > started:
+        planned -= timedelta(hours=every)
     return round((started - planned).total_seconds() / 60, 1)
 
 

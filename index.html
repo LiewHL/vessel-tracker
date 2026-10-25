@@ -229,7 +229,7 @@
     <h2>Reports</h2>
     <ul class="reports" id="reports"></ul>
     <div class="foot">Weekly every Monday 07:50 SGT · monthly on the 1st. Open a report, then Print › Save as PDF.<br>
-      Positions come from shore-based AIS receivers (AISStream), logged on a schedule (currently a test: every hour at :17). Ships far from the coast keep their last known position until back in range.
+      Positions come from shore-based AIS receivers (AISStream), logged every 3 hours (02:37, 05:37 … 23:37 SGT; GitHub sometimes starts runs late or skips one). Ships far from the coast keep their last known position until back in range.
       Place names: World Port Index (NGA Pub. 150).</div>
   </div>
 </header>
@@ -534,14 +534,14 @@
   }
   function renderRun(run) {
     const pill = $('runPill'), txt = $('runText');
-    if (!run || !run.last_run_utc) { pill.textContent = 'Logger not run yet'; txt.textContent = 'Test: runs hourly at :17'; return; }
+    if (!run || !run.last_run_utc) { pill.textContent = 'Logger not run yet'; txt.textContent = 'Runs every 3 hours'; return; }
     const ok = String(run.last_status || '').startsWith('ok');
-    const hrs = (Date.now() - new Date(run.last_run_utc).getTime()) / 36e5, late = ok && hrs > 14;
+    const hrs = (Date.now() - new Date(run.last_run_utc).getTime()) / 36e5, late = ok && hrs > 9;
     pill.textContent = !ok ? 'Logger problem' : late ? 'Logger late' : 'Logger OK';
     pill.classList.toggle('bad', !ok); pill.classList.toggle('warn', late);
     if (!ok) pill.title = run.last_status;
     const h = (run.history || [])[0] || {};
-    txt.textContent = `Last run ${fmtTime(run.last_run_utc)} · heard ${h.vessels_heard ?? 0}/${h.vessels_tracked ?? 0} · test: hourly at :17`;
+    txt.textContent = `Last run ${fmtTime(run.last_run_utc)} · heard ${h.vessels_heard ?? 0}/${h.vessels_tracked ?? 0} · every 3 h`;
     if (late) banner(`<b>No new positions for ${Math.floor(hrs)} hours.</b> A scheduled log was missed (GitHub sometimes skips scheduled runs); it normally catches up at the next run. To log now: GitHub › Actions › Daily position log › Run workflow.`);
   }
   function toggleRun() {
