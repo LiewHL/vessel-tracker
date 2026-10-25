@@ -192,7 +192,7 @@ async def listen(api_key, mmsis, seconds, state):
 
 def schedule_delay(started):
     """Minutes between the planned schedule minute and the actual start (scheduled runs only)."""
-    if os.environ.get("RUN_TRIGGER") != "schedule":
+    if os.environ.get("RUN_TRIGGER") not in ("schedule", "cron"):
         return None
     try:
         minute = int(os.environ.get("SCHEDULE_MINUTE", "17"))

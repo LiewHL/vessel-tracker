@@ -1,15 +1,20 @@
 name: Daily position log
 
+# Started every 3 hours by cron-job.org (02:37, 05:37 ... 23:37 Singapore time, source=cron).
+# GitHub's own timer below is only a backup, 20 minutes later; GitHub often delays or skips it.
+# Timed starts (cron-job.org or GitHub's timer) are skipped if the logger already ran in the last
+# 2 hours, so the two never double up. Starting it by hand always runs.
 on:
   schedule:
-    # Every 3 hours at :37 UTC = 02:37, 05:37, 08:37, 11:37, 14:37, 17:37, 20:37, 23:37 Singapore time.
-    # (An off-peak minute: GitHub delays or skips fewer runs.) Each run listens for 30 minutes.
-    - cron: "37 */3 * * *"
-  workflow_dispatch:             # lets you run it by hand from the Actions tab
+    - cron: "57 */3 * * *"       # backup: 02:57, 05:57 ... SGT
+  workflow_dispatch:
     inputs:
       listen_minutes:
         description: "Minutes to listen for ships"
         default: "30"
+      source:
+        description: "Leave as 'manual' (cron-job.org sends 'cron')"
+        default: "manual"
 
 permissions:
   contents: write
@@ -19,7 +24,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip if the logger ran recently (timed starts only)
+        id: guard
+        env:
+          TIMED: ${{ github.event_name == 'schedule' || github.event.inputs.source == 'cron' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          run = "true"
+          if os.environ.get("TIMED") == "true":
+              try:
+                  last = json.load(open("data/status.json"))["last_run_utc"]
+                  age = (datetime.now(timezone.utc) - datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() / 60
+                  if age < 120:
+                      run = "false"
+                      print(f"::notice::Skipped: the logger already ran {age:.0f} minutes ago.", flush=True)
+              except Exception:
+                  pass
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"run={run}\n")
+          PY
+
   log:
+    needs: check
+    if: needs.check.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -44,8 +80,8 @@ jobs:
         env:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '30' }}
-          RUN_TRIGGER: ${{ github.event_name }}
-          SCHEDULE_MINUTE: "37"
+          RUN_TRIGGER: ${{ github.event.inputs.source == 'cron' && 'cron' || github.event_name }}
+          SCHEDULE_MINUTE: ${{ github.event.inputs.source == 'cron' && '37' || '57' }}
           SCHEDULE_EVERY_H: "3"
         run: python scripts/log_positions.py
 
