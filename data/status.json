@@ -1,7 +1,18 @@
 {
-  "last_run_utc": "2026-10-24T23:36:25Z",
+  "last_run_utc": "2026-10-25T00:36:52Z",
   "last_status": "ok",
   "history": [
+    {
+      "run_utc": "2026-10-25T00:36:52Z",
+      "status": "ok",
+      "trigger": "workflow_dispatch",
+      "start_delay_min": null,
+      "listen_minutes": 3.0,
+      "vessels_tracked": 6,
+      "vessels_heard": 2,
+      "messages": 3,
+      "reconnects": 0
+    },
     {
       "run_utc": "2026-10-24T23:36:25Z",
       "status": "ok",
