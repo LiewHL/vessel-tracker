@@ -171,6 +171,24 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV fil
 | `assets/ports.json` | World port list used for place names (World Port Index, NGA Pub. 150) | No |
 | `.github/workflows/` | The daily, weekly and monthly schedules | Only to change times |
 
+## Reliable start (cron-job.org)
+
+GitHub's own timer often starts runs late or skips them, so the logger is started by **cron-job.org**
+(free) every 3 hours. GitHub's timer stays on as a backup 20 minutes later; a timed start is skipped if
+the logger already ran in the last 2 hours.
+
+1. **GitHub key:** profile picture > Settings > Developer settings > Personal access tokens >
+   Fine-grained tokens > Generate new token. Repository access: *Only select repositories* > this project.
+   Permissions > Repository permissions > **Actions: Read and write** (nothing else). Copy the token.
+2. **cron-job.org job:** URL `https://api.github.com/repos/<username>/<project>/actions/workflows/daily-log.yml/dispatches`,
+   schedule every day at hours 2, 5, 8, 11, 14, 17, 20, 23, minute 37 (time zone Asia/Singapore).
+   Advanced: method **POST**; headers `Accept: application/vnd.github+json`,
+   `Authorization: Bearer <token>`, `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`;
+   body `{"ref":"main","inputs":{"source":"cron"}}`. A test run should return **204**.
+3. When the token expires, generate a new one and paste it into the cron-job.org header.
+
+The token can only start runs on this project; it cannot read or change anything.
+
 ## Changing the schedule
 
 Times are in UTC (Singapore is UTC+8). In `.github/workflows/daily-log.yml`, the line `cron: "37 */3 * * *"` means every 3 hours at :37 UTC = 02:37, 05:37 … 23:37 SGT. Avoid minute 0 (the busiest time on GitHub). To listen longer each day, change `'30'` in `LISTEN_MINUTES` (max about 50).
