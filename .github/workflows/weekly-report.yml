@@ -24,7 +24,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install cryptography
-        run: pip install --quiet "cryptography>=42"
+        run: pip install --quiet "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12"
 
       - name: Unlock the data
         env:

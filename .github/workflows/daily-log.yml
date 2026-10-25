@@ -31,8 +31,7 @@ jobs:
 
       - name: Install websockets and cryptography
         run: |
-          pip install --quiet "websockets>=12" "cryptography>=42"
-          echo "::notice::installed $(pip freeze | grep -iE '^(websockets|cryptography|cffi|pycparser)==' | tr '\n' ' ')"
+          pip install --quiet "websockets==17.3" "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12"
 
       # Data is stored encrypted (vault/). Unlock it for this run only.
       - name: Unlock the data
