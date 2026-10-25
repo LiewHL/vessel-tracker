@@ -1,16 +1,16 @@
 name: Daily position log
 
-# Started every 2 hours by cron-job.org (source=cron). GitHub's own timer below is only a backup;
+# Started every hour by cron-job.org, on the hour (source=cron). GitHub's own timer below is only a backup;
 # GitHub often delays or skips it. Timed starts (cron-job.org or GitHub's timer) are skipped if the
-# logger already ran in the last 75 minutes, so the two never double up. Starting it by hand always runs.
+# logger already ran in the last 40 minutes, so the two never double up. Starting it by hand always runs.
 on:
   schedule:
-    - cron: "25 */2 * * *"       # backup: every 2 hours at :25
+    - cron: "25 * * * *"         # backup: every hour at :25
   workflow_dispatch:
     inputs:
       listen_minutes:
         description: "Minutes to listen for ships"
-        default: "30"
+        default: "15"
       source:
         description: "Leave as 'manual' (cron-job.org sends 'cron')"
         default: "manual"
@@ -43,7 +43,7 @@ jobs:
               try:
                   last = json.load(open("data/status.json"))["last_run_utc"]
                   age = (datetime.now(timezone.utc) - datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() / 60
-                  if age < 75:
+                  if age < 40:
                       run = "false"
                       print(f"::notice::Skipped: the logger already ran {age:.0f} minutes ago.", flush=True)
               except Exception:
@@ -78,10 +78,10 @@ jobs:
       - name: Listen for ships and log positions
         env:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
-          LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '30' }}
+          LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '15' }}
           RUN_TRIGGER: ${{ github.event.inputs.source == 'cron' && 'cron' || github.event_name }}
           SCHEDULE_MINUTE: ${{ github.event.inputs.source == 'cron' && '0' || '25' }}
-          SCHEDULE_EVERY_H: "2"
+          SCHEDULE_EVERY_H: "1"
         run: python scripts/log_positions.py
 
       # Risk areas, nearby storms, ships gone quiet. Never stops the log from being saved.
