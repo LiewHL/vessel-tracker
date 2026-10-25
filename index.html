@@ -518,7 +518,7 @@
   }
   function vfUrl(v) {
     const imo = (v.imo || '').replace(/\D/g, ''), mmsi = (v.mmsi || '').replace(/\D/g, '');
-    return 'https://www.vesselfinder.com/aismap?' + (imo ? 'imo=' + imo : 'mmsi=' + mmsi) + '&zoom=6&names=true&track=true';
+    return 'https://www.vesselfinder.com/aismap?' + (imo ? 'imo=' + imo : 'mmsi=' + mmsi);
   }
 
 
@@ -698,16 +698,24 @@
   // ---------- map panes ----------
   const P = [];
   // The ship menu in a panel chooses the ship for the whole dashboard (same as clicking it in the table).
-  function shipOptions() {
-    return vessels.map(v => `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
+  function catPicker(p) {
+    const cats = catOrder.filter(c => vessels.some(v => catOf(v) === c));
+    if (cats.length < 2 && !vessels.some(v => !v.category)) return '';
+    const opts = ['<option value="">All categories</option>'].concat(cats.map(c => `<option value="${esc(c)}" ${p.cat === c ? 'selected' : ''}>${esc(c)}</option>`));
+    if (vessels.some(v => !v.category)) opts.push(`<option value="${NOCAT}" ${p.cat === NOCAT ? 'selected' : ''}>${NOCAT}</option>`);
+    return `<select class="pcat" aria-label="Category">${opts.join('')}</select>`;
+  }
+  function shipOptions(cat) {
+    return vessels.filter(v => !cat || catOf(v) === cat).slice().sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true })).map(v => `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
   }
 
-  function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to }))); }
+  function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to, cat:p.cat || '' }))); }
   function destroy(p) { if (p.map) { p.map.remove(); p.map = null; } p.markers = {}; }
 
   function renderPane(p) {
     destroy(p);
     const ship = shipById(selectedId);
+    if (ship && p.cat && catOf(ship) !== p.cat) p.cat = catOf(ship);   // keep the category menu in step with the ship
     let tools = `<select class="mode" aria-label="What this panel shows">${Object.entries(MODES).map(([k, l]) => `<option value="${k}" ${p.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     if (p.mode === 'fleet') {
       tools += catOrder.length ? `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button><button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button></div>` : '';
@@ -715,7 +723,7 @@
     } else if (p.mode === 'timeline') {
       tools += `<div class="tinfo" aria-label="Categories">${catChips(hiddenCatsTL, 'timeline')}</div>`;
     } else {
-      tools += `<select class="ship" aria-label="Vessel">${shipOptions()}</select>`;
+      tools += catPicker(p) + `<select class="ship" aria-label="Vessel">${shipOptions(p.cat)}</select>`;
       if (p.mode === 'route') {
         tools += `<div class="seg" role="group" aria-label="Period">${[['7', '7 d'], ['30', '30 d'], ['all', 'All'], ['c', 'Dates']].map(([k, l]) => `<button data-r="${k}" class="${p.range === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
         if (p.range === 'c') {
@@ -729,6 +737,12 @@
     p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
     const shipSel = p.el.querySelector('.ship');
     if (shipSel) shipSel.onchange = e => select(e.target.value, false, true);
+    const catSel = p.el.querySelector('.pcat');
+    if (catSel) catSel.onchange = e => {
+      p.cat = e.target.value; save();
+      const cur = shipById(selectedId), first = vessels.find(v => !p.cat || catOf(v) === p.cat);
+      if (first && (!cur || (p.cat && catOf(cur) !== p.cat))) select(first.id, false, true); else renderPane(p);
+    };
     p.el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { colourBy = b.dataset.c; store.set('colourBy', colourBy); P.forEach(q => q.mode === 'fleet' && renderPane(q)); });
     p.el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { p.range = b.dataset.r; save(); renderPane(p); });
     p.el.querySelectorAll('.from,.to').forEach(i => i.onchange = () => { p.from = p.el.querySelector('.from').value; p.to = p.el.querySelector('.to').value; save(); renderPane(p); });
@@ -748,6 +762,9 @@
       f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
       f.setAttribute('referrerpolicy', 'no-referrer');
       f.title = 'Live position of ' + ship.vessel_name; f.src = vfUrl(ship);
+      const t = document.createElement('div'); t.className = 'tinfo';
+      t.innerHTML = `<a class="hbtn" href="https://www.vesselfinder.com/vessels/details/${encodeURIComponent(ship.imo || ship.mmsi || '')}" target="_blank" rel="noopener noreferrer">Open in VesselFinder ↗</a>`;
+      p.el.querySelector('.ptool').appendChild(t);
       body.appendChild(f); p.liveH = body.clientHeight;
       return;
     }
@@ -997,7 +1014,7 @@
     vessels.sort((a, b) => order[a._state] - order[b._state] || a.id.localeCompare(b.id, undefined, { numeric:true }));
     standby.forEach(v => { if (v.category && !catOrder.includes(v.category)) catOrder.push(v.category); });
     defaultCat = latestCat([...new Set(vessels.concat(standby).map(catOf))]);
-    openCats = new Set(defaultCat ? [defaultCat] : []);
+    openCats = new Set();          // all categories start closed; click a heading to open
     selectedId = (vessels.find(v => latest[v.id] && catOf(v) === defaultCat) || vessels.find(v => latest[v.id]) || vessels[0] || {}).id || '';
 
     if (catOrder.length) {
