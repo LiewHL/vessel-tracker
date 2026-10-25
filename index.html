@@ -671,18 +671,18 @@
       const c = b.dataset.cat; openCats.has(c) ? openCats.delete(c) : openCats.add(c); renderTable();
     });
   }
-  function select(id, fromTable) {
+  function select(id, fromTable, noScroll) {
     selectedId = id;
     const v = shipById(id);
     if (v && openCats && catOrder.length && !openCats.has(catOf(v))) { openCats.add(catOf(v)); renderTable(); }
     $('rows').querySelectorAll('tr[data-id]').forEach(tr => tr.classList.toggle('sel', tr.dataset.id === id));
-    if (!fromTable) { const tr = $('rows').querySelector(`tr[data-id="${CSS.escape(id)}"]`); if (tr) tr.scrollIntoView({ block:'nearest' }); }
+    if (!fromTable && !noScroll) { const tr = $('rows').querySelector(`tr[data-id="${CSS.escape(id)}"]`); if (tr) tr.scrollIntoView({ block:'nearest' }); }
     if (fromTable && v && hiddenCats.has(catOf(v))) { hiddenCats.delete(catOf(v)); saveHidden(); P.forEach(q => q.mode === 'fleet' && renderPane(q)); }
     if (fromTable && P.length === 2) {
       // Clicking a ship in the table: top panel = fleet map zoomed to it, bottom panel = its route.
       const [top, bot] = P;
-      if (top.mode !== 'fleet') { top.mode = 'fleet'; top.ship = ''; renderPane(top); }
-      if (bot.mode !== 'route' || bot.ship) { bot.mode = 'route'; bot.ship = ''; }
+      if (top.mode !== 'fleet') { top.mode = 'fleet'; renderPane(top); }
+      bot.mode = 'route';
       save();
       focusFleet(top, id, 7);
       renderPane(bot);
@@ -691,22 +691,23 @@
     }
     P.forEach(p => {
       if (p.mode === 'fleet') focusFleet(p, id);
-      else if (!p.ship) renderPane(p);      // "Selected ship" panes follow the selection
+      else renderPane(p);                   // route / live / timeline panels show the selected ship
     });
   }
 
   // ---------- map panes ----------
   const P = [];
-  function shipOptions(cur) {
-    return `<option value="" ${!cur ? 'selected' : ''}>Selected ship${selectedId ? ' (' + esc(selectedId) + ')' : ''}</option>` +
-      vessels.map(v => `<option value="${esc(v.id)}" ${cur === v.id ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
+  // The ship menu in a panel chooses the ship for the whole dashboard (same as clicking it in the table).
+  function shipOptions() {
+    return vessels.map(v => `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
   }
-  function save() { store.set('panes', P.map(p => ({ mode:p.mode, ship:p.ship, range:p.range, from:p.from, to:p.to }))); }
+
+  function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to }))); }
   function destroy(p) { if (p.map) { p.map.remove(); p.map = null; } p.markers = {}; }
 
   function renderPane(p) {
     destroy(p);
-    const ship = shipById(p.ship || selectedId);
+    const ship = shipById(selectedId);
     let tools = `<select class="mode" aria-label="What this panel shows">${Object.entries(MODES).map(([k, l]) => `<option value="${k}" ${p.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     if (p.mode === 'fleet') {
       tools += catOrder.length ? `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button><button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button></div>` : '';
@@ -714,7 +715,7 @@
     } else if (p.mode === 'timeline') {
       tools += `<div class="tinfo" aria-label="Categories">${catChips(hiddenCatsTL, 'timeline')}</div>`;
     } else {
-      tools += `<select class="ship" aria-label="Vessel">${shipOptions(p.ship)}</select>`;
+      tools += `<select class="ship" aria-label="Vessel">${shipOptions()}</select>`;
       if (p.mode === 'route') {
         tools += `<div class="seg" role="group" aria-label="Period">${[['7', '7 d'], ['30', '30 d'], ['all', 'All'], ['c', 'Dates']].map(([k, l]) => `<button data-r="${k}" class="${p.range === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
         if (p.range === 'c') {
@@ -727,7 +728,7 @@
     const body = p.el.querySelector('.pbody');
     p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
     const shipSel = p.el.querySelector('.ship');
-    if (shipSel) shipSel.onchange = e => { p.ship = e.target.value; save(); renderPane(p); };
+    if (shipSel) shipSel.onchange = e => select(e.target.value, false, true);
     p.el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { colourBy = b.dataset.c; store.set('colourBy', colourBy); P.forEach(q => q.mode === 'fleet' && renderPane(q)); });
     p.el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { p.range = b.dataset.r; save(); renderPane(p); });
     p.el.querySelectorAll('.from,.to').forEach(i => i.onchange = () => { p.from = p.el.querySelector('.from').value; p.to = p.el.querySelector('.to').value; save(); renderPane(p); });
@@ -1011,7 +1012,7 @@
     });
 
     renderRun(run); renderChips(); renderReports(reports); renderTable(); setupGutters();
-    ['pane0', 'pane1'].forEach((id, i) => { const p = Object.assign({ mode:'fleet', ship:'', range:'30' }, panes[i] || {}, { el:$(id), markers:{} }); if (!MODES[p.mode]) p.mode = 'fleet'; P.push(p); renderPane(p); });
+    ['pane0', 'pane1'].forEach((id, i) => { const p = Object.assign({ mode:'fleet', range:'30' }, panes[i] || {}, { ship:'', el:$(id), markers:{} }); if (!MODES[p.mode]) p.mode = 'fleet'; P.push(p); renderPane(p); });
     const issues = checkRoster(vessels);
     if (issues.length) banner(`<b>vessels.csv needs checking (${issues.length}):</b> ${issues.slice(0, 6).map(esc).join(' · ')}${issues.length > 6 ? ' …' : ''}`);
     if (vessels.some(v => /^SAMPLE /i.test(v.vessel_name))) banner('Showing <b>sample vessels</b>. Edit <b>vessels.csv</b> with the real ship names, IMO and MMSI numbers to start tracking.');
