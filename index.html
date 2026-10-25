@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vessel Tracking</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root {
     --bg:#f3f6f8; --card:#ffffff; --ink:#132430; --muted:#5d6e7b; --line:#dbe3e9;
@@ -213,7 +213,7 @@
     <p>This dashboard is locked. Enter the passcode to view positions and reports.</p>
     <input type="text" name="username" value="vessel-tracker" autocomplete="username" hidden>
     <input type="password" id="lockPass" autocomplete="current-password" placeholder="Passcode" aria-label="Passcode" required>
-    <label><input type="checkbox" id="lockRemember" checked> Remember on this device</label>
+    <label><input type="checkbox" id="lockRemember" checked> Remember on this device for 30 days</label>
     <button type="submit" id="lockGo">Unlock</button>
     <div class="err" id="lockErr" role="alert"></div>
   </form>
@@ -260,7 +260,7 @@
   </section>
 </main>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 (function () {
   'use strict';
@@ -301,11 +301,17 @@
   }
   const aesKey = raw => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
   async function keyWorks(key) { try { return await decRecord(key, VAULT.meta.check) === CHECK; } catch (e) { return false; } }
+  const REMEMBER_DAYS = 30;     // "Remember on this device" lasts this long, then the passcode is asked again
   function slotGet() {
-    for (const s of ['localStorage', 'sessionStorage']) { try { const v = JSON.parse(window[s].getItem(KEY_SLOT)); if (v) return v; } catch (e) {} }
+    try { const v = JSON.parse(sessionStorage.getItem(KEY_SLOT)); if (v) return v; } catch (e) {}
+    try {
+      const v = JSON.parse(localStorage.getItem(KEY_SLOT));
+      if (v && v.t && Date.now() - v.t < REMEMBER_DAYS * 864e5) return v;
+      if (v) localStorage.removeItem(KEY_SLOT);       // expired (or saved before expiry existed)
+    } catch (e) {}
     return null;
   }
-  function slotSet(v, remember) { try { window[remember ? 'localStorage' : 'sessionStorage'].setItem(KEY_SLOT, JSON.stringify(v)); } catch (e) {} }
+  function slotSet(v, remember) { try { window[remember ? 'localStorage' : 'sessionStorage'].setItem(KEY_SLOT, JSON.stringify(Object.assign({ t:Date.now() }, v))); } catch (e) {} }
   function slotClear() { for (const s of ['localStorage', 'sessionStorage']) { try { window[s].removeItem(KEY_SLOT); } catch (e) {} } }
 
   async function fetchText(path) {
@@ -735,6 +741,10 @@
     if (p.mode === 'live') {
       if (!ship.imo && !ship.mmsi) { body.innerHTML = '<div class="msg">No IMO or MMSI for this vessel.</div>'; return; }
       const f = document.createElement('iframe');
+      // Sealed frame: VesselFinder's map code runs in its own sandbox and cannot read this page,
+      // its remembered passcode key or the unlocked data.
+      f.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+      f.setAttribute('referrerpolicy', 'no-referrer');
       f.title = 'Live position of ' + ship.vessel_name; f.srcdoc = vfSrcdoc(ship, body.clientHeight || 300);
       body.appendChild(f); p.liveH = body.clientHeight;
       return;
