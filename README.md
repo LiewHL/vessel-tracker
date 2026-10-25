@@ -3,7 +3,7 @@
 A hands-off tracker for a list of ships. It runs entirely on GitHub's servers, so your computer can stay off.
 
 - **Dashboard:** a web page with a map of each ship's last known position, a list with "last seen" status, and a ↗ link to each ship's live position on VesselFinder.
-- **Position log:** every 3 hours (02:37, 05:37, 08:37 … 23:37 SGT; an off-peak minute so GitHub is less likely to delay or skip the run), a script listens to AISStream for 30 minutes and saves the position of every ship it hears.
+- **Position log:** every 2 hours (started by cron-job.org, with GitHub's timer as a backup), a script listens to AISStream for 30 minutes and saves the position of every ship it hears.
 - **Weekly report:** every Monday at 07:50 SGT, a printable report is created, linked on the dashboard and emailed (with CSV files) to the private recipient list.
 - **Monthly report:** on the 1st of each month at 08:20 SGT, a report for the previous month (tracks, days heard, positions logged, distance) is created, linked on the dashboard and emailed.
 - **Passcode lock:** positions, run records and reports are stored encrypted. The dashboard asks for the passcode before showing anything.
@@ -153,10 +153,10 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV fil
 ## Limits to know
 
 - **Coastal coverage only.** AISStream uses shore-based receivers. Ships mid-ocean keep their last known position until they come back into range, so red does not mean something is wrong.
-- **Snapshots, not a continuous track.** The log records where each ship was during each 30-minute listen (every 3 hours). Use the ship's **↗** VesselFinder link for its current position.
+- **Snapshots, not a continuous track.** The log records where each ship was during each 30-minute listen (every 2 hours). Use the ship's **↗** VesselFinder link for its current position.
 - **AIS switched off.** Ships in high-risk areas sometimes switch AIS off.
 - **AISStream is free with no uptime guarantee.** A missed day just means a gap in the log. The next day's run continues normally.
-- **Scheduled runs can start late.** GitHub may start scheduled jobs late, or occasionally skip one, at busy times. The dashboard shows **Logger late** if no run has happened for over 9 hours.
+- **Scheduled runs can start late.** GitHub may start scheduled jobs late, or occasionally skip one, at busy times. The dashboard shows **Logger late** if no run has happened for over 6 hours.
 
 ## Files in this project
 
@@ -174,14 +174,14 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV fil
 ## Reliable start (cron-job.org)
 
 GitHub's own timer often starts runs late or skips them, so the logger is started by **cron-job.org**
-(free) every 3 hours. GitHub's timer stays on as a backup 20 minutes later; a timed start is skipped if
-the logger already ran in the last 2 hours.
+(free) every 2 hours. GitHub's own timer stays on as a backup; a timed start is skipped if the logger
+already ran in the last 75 minutes.
 
 1. **GitHub key:** profile picture > Settings > Developer settings > Personal access tokens >
    Fine-grained tokens > Generate new token. Repository access: *Only select repositories* > this project.
    Permissions > Repository permissions > **Actions: Read and write** (nothing else). Copy the token.
 2. **cron-job.org job:** URL `https://api.github.com/repos/<username>/<project>/actions/workflows/daily-log.yml/dispatches`,
-   schedule every day at hours 2, 5, 8, 11, 14, 17, 20, 23, minute 37 (time zone Asia/Singapore).
+   schedule every 2 hours (time zone Asia/Singapore).
    Advanced: method **POST**; headers `Accept: application/vnd.github+json`,
    `Authorization: Bearer <token>`, `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`;
    body `{"ref":"main","inputs":{"source":"cron"}}`. A test run should return **204**.
@@ -191,7 +191,7 @@ The token can only start runs on this project; it cannot read or change anything
 
 ## Changing the schedule
 
-Times are in UTC (Singapore is UTC+8). In `.github/workflows/daily-log.yml`, the line `cron: "37 */3 * * *"` means every 3 hours at :37 UTC = 02:37, 05:37 … 23:37 SGT. Avoid minute 0 (the busiest time on GitHub). To listen longer each day, change `'30'` in `LISTEN_MINUTES` (max about 50).
+Times are in UTC (Singapore is UTC+8). In `.github/workflows/daily-log.yml`, the line `cron: "25 */2 * * *"` is only the backup timer (every 2 hours at :25 UTC); the main start times are set on cron-job.org.
 
 ## Troubleshooting
 
