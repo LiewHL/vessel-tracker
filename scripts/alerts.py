@@ -66,7 +66,7 @@ def sgt(dt):
 def main():
     now = now_utc()
     today = now.astimezone(SGT).date()
-    roster = [v for v in load_roster() if active_in(v, today, today)]
+    roster = [v for v in load_roster() if v["period"]["status"] in ("onboard", "nodates")]
     latest = read_json(LATEST, {})
     state = read_json(STATE, {})
     log = read_json(LOG, [])

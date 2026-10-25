@@ -40,10 +40,6 @@ def check(path=ROSTER):
             who = f"Line {n} ({vid or 'no ID'} {row.get('vessel_name', '')})".strip()
             if not vid:
                 problems.append(f"{who}: ID is empty.")
-            elif vid in ids:
-                problems.append(f"{who}: ID {vid} is also used on line {ids[vid]}.")
-            else:
-                ids[vid] = n
             mmsi, imo = re.sub(r"\D", "", row.get("mmsi", "")), re.sub(r"\D", "", row.get("imo", ""))
             if not mmsi and not imo:        # standby place: no vessel assigned yet
                 standby.append(vid)
@@ -67,6 +63,23 @@ def check(path=ROSTER):
                         problems.append(f"{who}: {label} '{val}' must be written as YYYY-MM-DD.")
             if ds and de and de < ds:
                 problems.append(f"{who}: end_date is before start_date.")
+            if vid:
+                ids.setdefault(vid, []).append((n, ds, de, bool(s)))
+    # An ID on several lines = stints (signed off, then signed on again). They need sign-on dates,
+    # every stint but the last needs a sign-off date, and stints must not overlap.
+    for vid, stints in ids.items():
+        if len(stints) < 2:
+            continue
+        lines = ", ".join(str(n) for n, *_ in stints)
+        if any(not has_start for *_, has_start in stints):
+            problems.append(f"{vid} (lines {lines}): each stint needs a start_date (sign-on date).")
+            continue
+        stints = sorted((x for x in stints if x[1]), key=lambda x: x[1])
+        for (n1, s1, e1, _), (n2, s2, e2, _) in zip(stints, stints[1:]):
+            if e1 is None:
+                problems.append(f"{vid} line {n1}: give the sign-off date (end_date) before the next stint on line {n2}.")
+            elif s2 <= e1:
+                problems.append(f"{vid} lines {n1} and {n2}: the stints overlap.")
     return problems, warnings, standby
 
 

@@ -86,8 +86,8 @@ def main():
             " -> ".join(places_visited(period)),
         ])
     paths.append(write(os.path.join(out_dir, f"ship_summary_{label}.csv"), [
-        "ID", "Vessel", "Company", "Category", "IMO", "MMSI", "Period start", "Period end",
-        "Period progress", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
+        "ID", "Vessel", "Company", "Category", "IMO", "MMSI", "First sign-on", "Expected finish (182 days on board)",
+        "Progress (days on board)", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
         "Days heard", "Positions in period", "Distance logged (nm)", "Places visited (within 30 nm)",
     ], summary))
 

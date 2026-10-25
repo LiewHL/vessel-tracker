@@ -151,35 +151,53 @@ def _d(s):
 
 
 def upcoming_changes(roster, today, days=14):
-    """Ships whose period starts or ends within `days` of today (inclusive)."""
+    """Expected finishes and sign-ons (first or again) within `days` of today (inclusive)."""
     soon_end, soon_start = [], []
     for v in roster:
-        s, e = _d(v.get("start_date")), _d(v.get("end_date"))
+        p = v.get("period") or {}
+        e = p.get("expected_end") if p.get("status") == "onboard" else None
         if e and 0 <= (e - today).days <= days:
             soon_end.append((e, v))
-        if s and 0 <= (s - today).days <= days:
-            soon_start.append((s, v))
+        for st in v.get("stints", []):
+            if st["start"] and 0 <= (st["start"] - today).days <= days:
+                soon_start.append((st["start"], v))
     return sorted(soon_end, key=lambda x: x[0]), sorted(soon_start, key=lambda x: x[0])
 
 
 def active_in(v, start, end):
-    """True if the ship's period overlaps [start, end] (dates). Ships without dates count as active."""
-    s, e = _d(v.get("start_date")), _d(v.get("end_date"))
-    if not s or not e:
+    """True if any stint on board overlaps [start, end] (dates). Ships without dates count as active."""
+    stints = [s for s in v.get("stints", []) if s["start"]]
+    if not stints:
         return True
-    return s <= end and e >= start
+    return any(s["start"] <= end and (s["end"] is None or s["end"] >= start) for s in stints)
 
 
 # ---------------------------------------------------------------- timeline (SVG)
 def timeline_svg(roster, colours, today, window_start=None, window_end=None, highlight=None):
     """Bars of each ship's period, grouped as given (roster order). colours: {category: hex}.
     highlight: optional (start_date, end_date) shaded as the report period."""
-    rows = [(v, _d(v.get("start_date")), _d(v.get("end_date"))) for v in roster]
-    rows = [r for r in rows if r[1] and r[2]]
+    rows = []
+    for v in roster:
+        segs = []        # (start, end, kind) kind: on = on board, plan = expected remaining time
+        for st in v.get("stints", []):
+            if not st["start"]:
+                continue
+            if st["end"]:
+                segs.append((st["start"], st["end"], "on"))
+            else:
+                segs.append((st["start"], min(today, (v.get("period") or {}).get("expected_end") or today), "on"))
+        p = v.get("period") or {}
+        if p.get("expected_end") and p.get("status") in ("onboard", "paused", "upcoming"):
+            last_on = max((s[1] for s in segs), default=today)
+            begin = p["next_start"] if p.get("status") != "onboard" and p.get("next_start") else max(today, last_on)
+            if p["expected_end"] > begin:
+                segs.append((begin, p["expected_end"], "plan"))
+        if segs:
+            rows.append((v, segs))
     if not rows:
         return '<p class="sub">No tracking periods set in vessels.csv.</p>'
-    lo = window_start or min(r[1] for r in rows)
-    hi = window_end or max(r[2] for r in rows)
+    lo = window_start or min(s[0] for _, segs in rows for s in segs)
+    hi = window_end or max(s[1] for _, segs in rows for s in segs)
     lo = date(lo.year, lo.month, 1)
     hi = (date(hi.year + (hi.month == 12), hi.month % 12 + 1, 1))
     span = max(1, (hi - lo).days)
@@ -199,13 +217,16 @@ def timeline_svg(roster, colours, today, window_start=None, window_end=None, hig
         lbl = m.strftime("%b %Y") if (m == lo or m.month == 1) else m.strftime("%b")
         out.append(f'<text x="{xx + 3:.1f}" y="{top - 10}" fill="#5b6b78">{lbl}</text>')
         m = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
-    for i, (v, s, en) in enumerate(rows):
+    for i, (v, segs) in enumerate(rows):
         y = top + i * row_h
         col = colours.get(v.get("category", ""), "#8a96a0")
         out.append(f'<text x="0" y="{y + 14}" fill="#14212b"><tspan font-weight="700">{e(v["id"])}</tspan> {e(v["vessel_name"][:16])}</text>')
-        x1, x2 = x(s), x(en)
-        out.append(f'<rect x="{x1:.1f}" y="{y + 4}" width="{max(2, x2 - x1):.1f}" height="{row_h - 8}" rx="3" fill="{col}">'
-                   f'<title>{e(v["id"])} {e(v["vessel_name"])}: {s:%d %b %Y} – {en:%d %b %Y}</title></rect>')
+        for s, en, kind in segs:
+            x1, x2 = x(s), x(en)
+            style = f'fill="{col}"' if kind == "on" else f'fill="{col}" fill-opacity=".28" stroke="{col}" stroke-dasharray="3 2"'
+            label = "on board" if kind == "on" else "expected"
+            out.append(f'<rect x="{x1:.1f}" y="{y + 4}" width="{max(2, x2 - x1):.1f}" height="{row_h - 8}" rx="3" {style}>'
+                       f'<title>{e(v["id"])} {e(v["vessel_name"])}: {label} {s:%d %b %Y} – {en:%d %b %Y}</title></rect>')
     if lo <= today <= hi:
         tx = x(today)
         out.append(f'<line x1="{tx:.1f}" y1="{top - 6}" x2="{tx:.1f}" y2="{h}" stroke="#c0392b" stroke-width="1.5"/>')

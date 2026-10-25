@@ -26,8 +26,18 @@ For each ship:
 | `category` | Your own grouping, e.g. a group code or ship type (optional). Each category gets its own colour | You choose |
 | `imo` | 7-digit IMO number (used for the live map) | Search the ship name on vesselfinder.com |
 | `mmsi` | 9-digit MMSI number (used for the daily log) | Same VesselFinder page, under the ship details |
-| `start_date`, `end_date` | Tracking period, format YYYY-MM-DD | Your records |
+| `start_date` | Sign-on date, format YYYY-MM-DD | Your records |
+| `end_date` | Sign-off date; **leave blank while on board** | Your records |
 | `notes` | Anything else (optional) | |
+
+**Signing off and on again (stints).** The tracking period is **26 weeks = 182 days on board**; days signed
+off don't count. When someone signs off, fill in `end_date` on their row: the dashboard shows
+"Paused since …", tracking and alerts stop. When they sign on again (same or another vessel), add a **new row
+with the same ID**, the ship's details and the new `start_date` (leave `end_date` blank). The expected finish
+moves later automatically. The vessel list check flags stints that overlap or a missing sign-off date.
+
+**Standby places.** A row with an ID and category but no IMO/MMSI is a place with no vessel yet: listed as
+"Standby", never tracked.
 
 > The daily log needs the **MMSI**. A ship without a correct MMSI will never get a logged position.
 

@@ -114,6 +114,7 @@
   .per .bar { height:4px; border-radius:2px; background:var(--line); margin-top:3px; overflow:hidden; }
   .per .bar i { display:block; height:100%; background:var(--accent); border-radius:2px; }
   .per.done .bar i { background:var(--fresh); }
+  .per.paused .bar i { background:var(--none); }
   .ttool { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
   .ttool input[type=search] { flex:1 1 160px; min-width:0; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 8px; }
   .ttool select { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; }
@@ -445,11 +446,15 @@
     const out = [], seen = {};
     list.forEach(v => {
       const who = `${v.id || '(no ID)'} ${v.vessel_name || ''}`.trim(), mmsi = String(v.mmsi || '').replace(/\D/g, ''), imo = String(v.imo || '').replace(/\D/g, '');
-      if (seen[v.id]) out.push(`${who}: ID used twice`); seen[v.id] = 1;
       if (mmsi.length !== 9) out.push(`${who}: MMSI must be 9 digits`);
       if (imo && !imoOk(imo)) out.push(`${who}: IMO ${imo} is not valid`);
       ['start_date', 'end_date'].forEach(k => { if (v[k] && !/^\d{4}-\d{2}-\d{2}$/.test(v[k])) out.push(`${who}: ${k} must be YYYY-MM-DD`); });
       if (v.start_date && v.end_date && v.end_date < v.start_date) out.push(`${who}: end_date is before start_date`);
+      const st = (v._stints || []).filter(s => !isNaN(s.start));
+      for (let i = 1; i < st.length; i++) {
+        if (isNaN(st[i - 1].end)) out.push(`${v.id}: sign-off date (end_date) missing before the next stint`);
+        else if (st[i].start <= st[i - 1].end) out.push(`${v.id}: stints overlap`);
+      }
     });
     return out;
   }
@@ -462,14 +467,33 @@
   }
   const loadPositions = () => positionsPromise || (positionsPromise = getText('data/positions.csv').then(parseCSV).catch(() => []));
   const sgtDate = d => new Date(d).toLocaleDateString('en-CA', { timeZone:SGT });
+  // Time on board across stints (rows sharing an ID: sign-on start_date -> sign-off end_date,
+  // blank end_date = still on board). 26 weeks = 182 days on board; days signed off don't count.
+  const REQ_DAYS = 182, DAY = 864e5;
+  const dParse = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '') ? Date.parse(s + 'T00:00:00Z') : NaN;
+  const dShort = t => new Date(t).toLocaleDateString('en-SG', { day:'2-digit', month:'short', timeZone:'UTC' });
+  function periodInfo(stints) {
+    const today = dParse(sgtDate(Date.now())), dated = stints.filter(s => !isNaN(s.start));
+    const info = { status:'nodates', days:0, expectedEnd:null, pausedSince:null, nextStart:null };
+    if (!dated.length) return info;
+    const started = dated.filter(s => s.start <= today), future = dated.filter(s => s.start > today);
+    info.nextStart = future.length ? future[0].start : null;
+    started.forEach(s => { const stop = isNaN(s.end) ? today : Math.min(s.end, today); if (stop >= s.start) info.days += Math.round((stop - s.start) / DAY) + 1; });
+    const cur = started[started.length - 1];
+    if (info.days >= REQ_DAYS) info.status = 'completed';
+    else if (!cur) info.status = 'upcoming';
+    else if (isNaN(cur.end) || cur.end >= today) { info.status = 'onboard'; info.expectedEnd = today + (REQ_DAYS - info.days + 1) * DAY; }
+    else { info.status = 'paused'; info.pausedSince = cur.end; }
+    if ((info.status === 'paused' || info.status === 'upcoming') && info.nextStart) info.expectedEnd = info.nextStart + (REQ_DAYS - info.days) * DAY;
+    return info;
+  }
   function period(v) {
-    const s = Date.parse(v.start_date), e = Date.parse(v.end_date);
-    if (isNaN(s) || isNaN(e)) return { text:'', n:0 };
-    const today = Date.parse(sgtDate(Date.now())), total = Math.round((e - s) / 864e5) + 1;
-    if (today < s) return { text:'Starts ' + new Date(s).toLocaleDateString('en-SG', { day:'2-digit', month:'short' }), n:-1 };
-    if (today > e) return { text:'Completed', n:2 };
-    const day = Math.round((today - s) / 864e5) + 1;
-    return { text:'Day ' + day + '/' + total, n:day / total };
+    const p = v._p || { status:'nodates', days:0 }, n = Math.min(p.days, REQ_DAYS) / REQ_DAYS;
+    if (p.status === 'nodates') return { text:'', n:0 };
+    if (p.status === 'completed') return { text:'Completed', n:2 };
+    if (p.status === 'upcoming') return { text:'Starts ' + dShort(p.nextStart), n:-1 };
+    if (p.status === 'paused') return { text:`Paused since ${dShort(p.pausedSince)} · Day ${p.days}/${REQ_DAYS}`, n, paused:true };
+    return { text:`Day ${p.days}/${REQ_DAYS}`, n };
   }
   function catColor(cat) {
     const i = catOrder.indexOf(cat);
@@ -582,9 +606,11 @@
   const fmtD = d => new Date(d + 'T00:00:00+08:00').toLocaleDateString('en-SG', { day:'2-digit', month:'short', year:'numeric', timeZone:SGT });
   function periodHTML(v, a, cls) {
     if (!a.text) return '';
-    const pct = a.n === -1 ? 0 : a.n === 2 ? 100 : Math.round(a.n * 100);
-    return `<div class="per ${cls || ''} ${a.n === 2 ? 'done' : ''}" title="Tracking period">
-      <div class="pt"><span class="pd">${esc(fmtD(v.start_date))} → ${esc(fmtD(v.end_date))}</span><b>${esc(a.text)}</b></div>
+    const pct = a.n === -1 ? 0 : a.n === 2 ? 100 : Math.round(a.n * 100), p = v._p || {};
+    const first = (v._stints || []).find(s => !isNaN(s.start));
+    const dates = a.paused ? '' : first ? `${fmtD(new Date(first.start).toISOString().slice(0, 10))} → ${p.expectedEnd ? 'exp. ' + fmtD(new Date(p.expectedEnd).toISOString().slice(0, 10)) : ''}` : '';
+    return `<div class="per ${cls || ''} ${a.n === 2 ? 'done' : ''} ${a.paused ? 'paused' : ''}" title="Time on board (26 weeks = ${REQ_DAYS} days)">
+      <div class="pt"><span class="pd">${esc(dates)}</span><b>${esc(a.text)}</b></div>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Period progress"><i style="width:${pct}%"></i></div></div>`;
   }
   function rowHTML(v) {
@@ -843,10 +869,20 @@
       const c = b.dataset.hc; hiddenCatsTL.has(c) ? hiddenCatsTL.delete(c) : hiddenCatsTL.add(c); saveHiddenTL();
       P.forEach(q => q.mode === 'timeline' && renderPane(q));
     });
-    const list = visible().filter(v => !hiddenCatsTL.has(catOf(v)) && !isNaN(Date.parse(v.start_date)) && !isNaN(Date.parse(v.end_date)))
+    const today = dParse(sgtDate(Date.now()));
+    const segsOf = v => {
+      const segs = [], p = v._p || {};
+      (v._stints || []).filter(s => !isNaN(s.start) && s.start <= today).forEach(s => segs.push({ s:s.start, e:isNaN(s.end) ? today : Math.min(s.end, today), kind:'on', vessel:s.vessel }));
+      if (p.expectedEnd && ['onboard', 'paused', 'upcoming'].includes(p.status)) {
+        const b = p.status !== 'onboard' && p.nextStart ? p.nextStart : Math.max(today, ...segs.filter(x => x.s <= today).map(x => x.e));
+        if (p.expectedEnd > b) segs.push({ s:b, e:p.expectedEnd, kind:'plan' });
+      }
+      return segs;
+    };
+    const list = visible().filter(v => !hiddenCatsTL.has(catOf(v))).map(v => Object.assign(v, { _segs:segsOf(v) })).filter(v => v._segs.length)
       .sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true }));
     if (!list.length) { body.innerHTML = `<div class="msg">${hiddenCatsTL.size ? 'No ships to show. Some categories are hidden: click a category above to show it.' : 'No tracking periods (start_date / end_date) in vessels.csv.'}</div>`; return; }
-    const day = 864e5, lo0 = Math.min(...list.map(v => Date.parse(v.start_date))), hi0 = Math.max(...list.map(v => Date.parse(v.end_date)));
+    const day = 864e5, lo0 = Math.min(...list.flatMap(v => v._segs.map(x => x.s))), hi0 = Math.max(...list.flatMap(v => v._segs.map(x => x.e)));
     const lo = new Date(lo0), hi = new Date(hi0);
     const start = Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth(), 1), end = Date.UTC(hi.getUTCFullYear(), hi.getUTCMonth() + 1, 1);
     const LW = 150, W = Math.max(640, body.clientWidth || 640), RH = 24, TOP = 28, H = TOP + RH * list.length + 10;
@@ -857,12 +893,13 @@
       svg += `<line x1="${xx}" y1="${TOP - 8}" x2="${xx}" y2="${H}" class="grid"/><text x="${xx + 3}" y="${TOP - 12}" class="ax">${esc(lbl)}</text>`;
     }
     list.forEach((v, i) => {
-      const y = TOP + i * RH, s = Date.parse(v.start_date), e = Date.parse(v.end_date) + day, a = period(v);
-      const col = v.category ? catColor(v.category) : css('--none');
-      svg += `<g class="bar" data-id="${esc(v.id)}" tabindex="0" role="button" aria-label="${esc(v.id)} ${esc(v.vessel_name)}">
-        <text x="0" y="${y + 15}" class="lb"><tspan font-weight="700">${esc(v.id)}</tspan> ${esc(v.vessel_name.slice(0, 16))}</text>
-        <rect x="${x(s)}" y="${y + 4}" width="${Math.max(2, x(e) - x(s))}" height="${RH - 9}" rx="3" fill="${col}" ${v.id === selectedId ? 'stroke="var(--ink)" stroke-width="2"' : ''}>
-        <title>${esc(v.id)} ${esc(v.vessel_name)}: ${esc(v.start_date)} → ${esc(v.end_date)} · ${esc(a.text)}</title></rect></g>`;
+      const y = TOP + i * RH, a = period(v);
+      const col = v.category ? catColor(v.category) : css('--none'), sel = v.id === selectedId;
+      const rects = v._segs.map(g => g.kind === 'on'
+        ? `<rect x="${x(g.s)}" y="${y + 4}" width="${Math.max(2, x(g.e + day) - x(g.s))}" height="${RH - 9}" rx="3" fill="${col}" ${sel ? 'stroke="var(--ink)" stroke-width="2"' : ''}><title>${esc(v.id)} ${esc(g.vessel || v.vessel_name)}: on board ${esc(dShort(g.s))} → ${esc(dShort(g.e))}</title></rect>`
+        : `<rect x="${x(g.s)}" y="${y + 4}" width="${Math.max(2, x(g.e) - x(g.s))}" height="${RH - 9}" rx="3" fill="${col}" fill-opacity=".25" stroke="${col}" stroke-dasharray="3 2"><title>${esc(v.id)}: expected to finish ${esc(dShort(g.e))} · ${esc(a.text)}</title></rect>`).join('');
+      svg += `<g class="bar" data-id="${esc(v.id)}" tabindex="0" role="button" aria-label="${esc(v.id)} ${esc(v.vessel_name)} · ${esc(a.text)}">
+        <text x="0" y="${y + 15}" class="lb"><tspan font-weight="700">${esc(v.id)}</tspan> ${esc(v.vessel_name.slice(0, 16))}</text>${rects}</g>`;
     });
     const now = Date.now();
     if (now >= start && now <= end) svg += `<line x1="${x(now)}" y1="${TOP - 8}" x2="${x(now)}" y2="${H}" class="today"/><text x="${x(now) + 3}" y="${H - 2}" class="todayt">today</text>`;
@@ -914,7 +951,19 @@
     try { csv = await getText('vessels.csv'); }
     catch (e) { banner('Could not load <b>vessels.csv</b>. Open this page through its GitHub Pages link (https://&lt;username&gt;.github.io/&lt;project&gt;/), not as a file on your computer.'); $('runPill').textContent = 'No data'; return; }
     // Rows with neither MMSI nor IMO are standby places (no vessel assigned yet): listed, never tracked.
-    const allRows = parseCSV(csv).filter(v => v.id), digits = x => String(x || '').replace(/\D/g, '');
+    // Rows sharing an ID are stints (signed off, then on again, maybe on another vessel).
+    // The current stint (latest started, else first) gives the vessel shown and tracked.
+    const digits = x => String(x || '').replace(/\D/g, ''), byId = new Map(), todayD = dParse(sgtDate(Date.now()));
+    parseCSV(csv).filter(v => v.id).forEach(r => { if (!byId.has(r.id)) byId.set(r.id, []); byId.get(r.id).push(r); });
+    const allRows = [...byId.values()].map(rows => {
+      const stints = rows.map(r => ({ start:dParse(r.start_date), end:dParse(r.end_date), row:r }))
+        .sort((a, b) => (isNaN(a.start) ? Infinity : a.start) - (isNaN(b.start) ? Infinity : b.start));
+      const started = stints.filter(s => !isNaN(s.start) && s.start <= todayD), cur = (started[started.length - 1] || stints[0]).row;
+      const v = Object.assign({}, cur);
+      v._stints = stints.map(s => ({ start:s.start, end:s.end, vessel:s.row.vessel_name }));
+      v._p = periodInfo(v._stints);
+      return v;
+    });
     standby = allRows.filter(v => !digits(v.mmsi) && !digits(v.imo));
     vessels = allRows.filter(v => !standby.includes(v));
     standby.forEach(v => { v.category = (v.category || '').trim(); });

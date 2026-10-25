@@ -206,35 +206,35 @@ def schedule_delay(started):
 
 def save_results(roster, state, started, listen_minutes, status):
     run_time = now_utc()
-    by_mmsi = {v["mmsi"]: v for v in roster if v["mmsi"]}
+    by_mmsi = {}            # several IDs can be on the same ship
+    for v in roster:
+        if v["mmsi"]:
+            by_mmsi.setdefault(v["mmsi"], []).append(v)
     latest = read_json(LATEST, {})
     rows = []
     for mmsi, fix in state["positions"].items():
-        v = by_mmsi.get(mmsi)
-        if not v:
-            continue
-        dest = state["destinations"].get(mmsi, latest.get(v["id"], {}).get("destination", ""))
-        row = {
-            "logged_at_utc": iso(run_time), "id": v["id"], "vessel_name": v["vessel_name"],
-            "mmsi": mmsi, "latitude": fix["latitude"], "longitude": fix["longitude"],
-            "speed_kn": "" if fix["speed_kn"] is None else fix["speed_kn"],
-            "course_deg": "" if fix["course_deg"] is None else fix["course_deg"],
-            "nav_status": fix["nav_status"], "destination": dest,
-            "ais_time_utc": fix["ais_time_utc"],
-        }
-        rows.append(row)
-        keep = {k: val for k, val in latest.get(v["id"], {}).items() if k in STATIC_KEYS}
-        latest[v["id"]] = {**keep,
-            "id": v["id"], "vessel_name": v["vessel_name"], "mmsi": mmsi, "imo": v["imo"],
-            "latitude": fix["latitude"], "longitude": fix["longitude"],
-            "speed_kn": fix["speed_kn"], "course_deg": fix["course_deg"],
-            "nav_status": fix["nav_status"], "destination": dest,
-            "last_seen_utc": fix["ais_time_utc"], "ship_name_ais": fix["ship_name_ais"],
-        }
+        for v in by_mmsi.get(mmsi, []):
+            dest = state["destinations"].get(mmsi, latest.get(v["id"], {}).get("destination", ""))
+            row = {
+                "logged_at_utc": iso(run_time), "id": v["id"], "vessel_name": v["vessel_name"],
+                "mmsi": mmsi, "latitude": fix["latitude"], "longitude": fix["longitude"],
+                "speed_kn": "" if fix["speed_kn"] is None else fix["speed_kn"],
+                "course_deg": "" if fix["course_deg"] is None else fix["course_deg"],
+                "nav_status": fix["nav_status"], "destination": dest,
+                "ais_time_utc": fix["ais_time_utc"],
+            }
+            rows.append(row)
+            keep = {k: val for k, val in latest.get(v["id"], {}).items() if k in STATIC_KEYS}
+            latest[v["id"]] = {**keep,
+                "id": v["id"], "vessel_name": v["vessel_name"], "mmsi": mmsi, "imo": v["imo"],
+                "latitude": fix["latitude"], "longitude": fix["longitude"],
+                "speed_kn": fix["speed_kn"], "course_deg": fix["course_deg"],
+                "nav_status": fix["nav_status"], "destination": dest,
+                "last_seen_utc": fix["ais_time_utc"], "ship_name_ais": fix["ship_name_ais"],
+            }
     # Ship particulars (type, size, draught, call sign, ETA) are kept even when no position was heard.
     for mmsi, info in state.get("static", {}).items():
-        v = by_mmsi.get(mmsi)
-        if v:
+        for v in by_mmsi.get(mmsi, []):
             entry = latest.setdefault(v["id"], {"id": v["id"], "vessel_name": v["vessel_name"], "mmsi": mmsi, "imo": v["imo"]})
             entry.update(info)
     rows.sort(key=lambda r: r["id"])
@@ -247,7 +247,7 @@ def save_results(roster, state, started, listen_minutes, status):
         "run_utc": iso(run_time), "status": status, "listen_minutes": listen_minutes,
         "trigger": os.environ.get("RUN_TRIGGER", "manual"), "started_utc": iso(started),
         "start_delay_min": schedule_delay(started),
-        "vessels_tracked": len(by_mmsi), "vessels_heard": len(rows),
+        "vessels_tracked": sum(len(x) for x in by_mmsi.values()), "vessels_heard": len(rows),
         "heard_ids": [r["id"] for r in rows], "messages": state["messages"],
         "reconnects": state["reconnects"], "errors": state["errors"][-5:],
     }
@@ -274,7 +274,8 @@ def write_status(entry):
 def main():
     started = now_utc()
     listen_minutes = float(os.environ.get("LISTEN_MINUTES") or 30)
-    roster = load_roster()
+    # IDs signed off (paused) are not tracked until they sign on again
+    roster = [v for v in load_roster() if v["period"]["status"] != "paused"]
     mmsis = sorted({v["mmsi"] for v in roster if len(v["mmsi"]) == 9})
     bad = [v["id"] for v in roster if len(v["mmsi"]) != 9]
     if bad:

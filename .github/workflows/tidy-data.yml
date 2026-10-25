@@ -1,14 +1,15 @@
 name: Tidy data
 
 # Removes ships that are no longer in vessels.csv from the logged data and applies ID changes.
-# Edit vessels.csv first, then run this with the ID changes, e.g. "TS07=TS02,TS08=TS03"
-# (list every ship to keep in the run records, including unchanged ones like "MR01=MR01").
+# Edit vessels.csv first, then run this with any ID changes as OLD=NEW pairs, e.g. "TS07=TS02,TS08=TS03"
+# (IDs not listed keep their ID). Records are kept if their ship is in any stint of that ID.
 on:
   workflow_dispatch:
     inputs:
       mapping:
-        description: "OLD=NEW pairs for every ship kept, comma-separated"
-        required: true
+        description: "ID changes as OLD=NEW pairs, comma-separated (leave empty if none)"
+        required: false
+        default: ""
 
 permissions:
   contents: write

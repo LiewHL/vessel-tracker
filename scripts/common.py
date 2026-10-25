@@ -3,7 +3,7 @@ import csv
 import json
 import math
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROSTER = os.path.join(ROOT, "vessels.csv")
@@ -48,11 +48,18 @@ def clean_digits(value):
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
-def load_roster(include_standby=False):
-    """Read vessels.csv. Rows without an id are skipped.
+REQUIRED_DAYS = 182      # 26 weeks on board
 
-    Rows with neither MMSI nor IMO are standby places (no vessel assigned yet). They are left out
-    unless include_standby is True; then each row has "standby": True/False."""
+
+def _date(s):
+    try:
+        return date.fromisoformat(s or "")
+    except ValueError:
+        return None
+
+
+def roster_rows():
+    """Every row of vessels.csv as written (one row per stint), cleaned."""
     rows = []
     with open(ROSTER, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -62,10 +69,74 @@ def load_roster(include_standby=False):
             row["mmsi"] = clean_digits(row.get("mmsi"))
             row["imo"] = clean_digits(row.get("imo"))
             row["standby"] = not row["mmsi"] and not row["imo"]
-            if row["standby"] and not include_standby:
-                continue
             rows.append(row)
     return rows
+
+
+def period_info(stints, today):
+    """Time on board across stints (sign-on start_date -> sign-off end_date; blank end = still on board).
+
+    Returns {"status": onboard|paused|upcoming|completed|nodates, "days": days on board so far,
+    "expected_end": date or None, "paused_since": date or None, "next_start": date or None}."""
+    dated = [s for s in stints if s["start"]]
+    info = {"status": "nodates", "days": 0, "expected_end": None, "paused_since": None, "next_start": None}
+    if not dated:
+        return info
+    started = [s for s in dated if s["start"] <= today]
+    future = [s for s in dated if s["start"] > today]
+    info["next_start"] = future[0]["start"] if future else None
+    days = 0
+    for s in started:
+        stop = min(s["end"], today) if s["end"] else today
+        if stop >= s["start"]:
+            days += (stop - s["start"]).days + 1
+    info["days"] = days
+    cur = started[-1] if started else None
+    if days >= REQUIRED_DAYS:
+        info["status"] = "completed"
+    elif cur is None:
+        info["status"] = "upcoming"
+    elif cur["end"] is None or cur["end"] >= today:
+        info["status"] = "onboard"
+        # 26 weeks after sign-on, pushed back by any days spent signed off
+        info["expected_end"] = today + timedelta(days=REQUIRED_DAYS - days + 1)
+    else:
+        info["status"] = "paused"
+        info["paused_since"] = cur["end"]
+    if info["status"] in ("paused", "upcoming") and info["next_start"]:
+        before = days
+        info["expected_end"] = info["next_start"] + timedelta(days=REQUIRED_DAYS - before)
+    return info
+
+
+def load_roster(include_standby=False, today=None):
+    """One entry per ID from vessels.csv (rows sharing an ID are stints: sign-off and sign-on again,
+    possibly on another vessel). Vessel details come from the current stint (the latest one that has
+    started, else the first). Each entry has "stints" and "period" (see period_info).
+
+    Places with neither MMSI nor IMO are standby (no vessel assigned yet). They are left out unless
+    include_standby is True; then each entry has "standby": True/False."""
+    today = today or datetime.now(timezone(timedelta(hours=8))).date()
+    by_id = {}
+    for row in roster_rows():
+        by_id.setdefault(row["id"], []).append(row)
+    out = []
+    for vid, rows in by_id.items():
+        stints = [{"start": _date(r.get("start_date")), "end": _date(r.get("end_date")), "row": r} for r in rows]
+        stints.sort(key=lambda s: (s["start"] is None, s["start"] or date.max))
+        started = [s for s in stints if s["start"] and s["start"] <= today]
+        cur = (started[-1] if started else stints[0])["row"]
+        v = dict(cur)
+        v["stints"] = [{"start": s["start"], "end": s["end"], "vessel_name": s["row"].get("vessel_name", ""),
+                        "imo": s["row"]["imo"], "mmsi": s["row"]["mmsi"]} for s in stints]
+        v["period"] = period_info(v["stints"], today)
+        firsts = [s["start"] for s in stints if s["start"]]
+        v["start_date"] = firsts[0].isoformat() if firsts else ""
+        v["end_date"] = v["period"]["expected_end"].isoformat() if v["period"]["expected_end"] else (cur.get("end_date") or "")
+        if v["standby"] and not include_standby:
+            continue
+        out.append(v)
+    return out
 
 
 def read_json(path, default):

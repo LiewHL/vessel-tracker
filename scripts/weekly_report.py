@@ -28,7 +28,7 @@ from insights import (  # noqa: E402
     active_in, category_colours, countries_visited, port_calls, timeline_svg, upcoming_changes,
 )
 from common import (  # noqa: E402
-    DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, freshness, haversine_nm, load_roster,
+    DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, REQUIRED_DAYS, period_info, freshness, haversine_nm, load_roster,
     now_utc, parse_iso, place_label, places_visited, read_json, read_positions,
     write_json,
 )
@@ -68,18 +68,19 @@ def age_text(dt, ref):
 
 
 def period_progress(v, today):
-    try:
-        s = date.fromisoformat(v.get("start_date", ""))
-        e = date.fromisoformat(v.get("end_date", ""))
-    except ValueError:
+    """Days on board out of 182 (26 weeks), counting only the stints actually on board."""
+    stints = v.get("stints") or []
+    p = period_info(stints, today) if stints else {"status": "nodates", "days": 0}
+    pct = round(100 * min(p["days"], REQUIRED_DAYS) / REQUIRED_DAYS)
+    if p["status"] == "nodates":
         return "—", None
-    total = (e - s).days + 1
-    if today < s:
-        return f"Starts {s.strftime('%d %b')}", 0
-    if today > e:
+    if p["status"] == "completed":
         return "Completed", 100
-    day = (today - s).days + 1
-    return f"Day {day} of {total}", round(100 * day / total)
+    if p["status"] == "upcoming":
+        return f"Starts {p['next_start']:%d %b}", 0
+    if p["status"] == "paused":
+        return f"Paused since {p['paused_since']:%d %b} · Day {p['days']} of {REQUIRED_DAYS}", pct
+    return f"Day {p['days']} of {REQUIRED_DAYS} · exp. finish {p['expected_end']:%d %b %Y}", pct
 
 
 def _fnum(v):
@@ -442,8 +443,9 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         order = sorted(ctx["roster"], key=lambda v: (category_rank((v.get("category") or "No category"),
                        latest_category({(x.get("category") or "No category") for x in ctx["roster"]})), v["id"]))
         svg = timeline_svg(order, category_colours(ctx["roster"]), ctx["today"], highlight=(ps, pe))
-        timeline = (f'<section class="tl"><h2>Tracking periods</h2>{svg}<p class="sub">Bars are each ship\'s tracking period '
-                    f'(colour = category). The shaded band is this {w}; the red line is today.</p></section>')
+        timeline = (f'<section class="tl"><h2>Tracking periods</h2>{svg}<p class="sub">Solid = time on board (each stint); '
+                    f'dashed = expected time still needed to reach 182 days (26 weeks). Colour = category. '
+                    f'The shaded band is this {w}; the red line is today.</p></section>')
     extra_sections = alerts_section(ctx, w) + coming_up(ctx) + timeline
     if kind != "quarterly":     # the one-pager shows port-call counts in the places table instead
         extra_sections += f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w)}</section>'
