@@ -563,6 +563,19 @@
   // Categories hidden on the fleet map (map only; remembered on this device).
   const hiddenCats = new Set(store.get('hiddenCats', []));
   const saveHidden = () => store.set('hiddenCats', [...hiddenCats]);
+  // Categories hidden on the timeline (separate from the fleet map; remembered on this device).
+  const hiddenCatsTL = new Set(store.get('hiddenCatsTL', []));
+  const saveHiddenTL = () => store.set('hiddenCatsTL', [...hiddenCatsTL]);
+  // Category chips that hide/show categories in a panel (fleet map or timeline).
+  function catChips(set, what) {
+    const cats = [...new Set(vessels.map(catOf))].sort((a, b) => catCompare(a, b, defaultCat));
+    if (!(cats.length > 1 || catOrder.length)) return '';
+    return cats.map(c => {
+      const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
+      const on = !set.has(c);
+      return `<button class="catchip" data-hc="${esc(c)}" aria-pressed="${on}" title="${on ? 'Hide' : 'Show'} ${esc(c)} on the ${what}">${dot}<span class="cn">${esc(c)}</span></button>`;
+    }).join('');
+  }
 
   // ---------- table ----------
   // Tracking period: start → end dates, day count and a progress bar.
@@ -669,7 +682,7 @@
       tools += catOrder.length ? `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button><button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button></div>` : '';
       tools += `<button class="hbtn" data-act="fit">Fit all</button>`;
     } else if (p.mode === 'timeline') {
-      tools += `<span class="sub">Tracking periods · click a bar to select the ship</span>`;
+      tools += `<div class="tinfo" aria-label="Categories">${catChips(hiddenCatsTL, 'timeline')}</div>`;
     } else {
       tools += `<select class="ship" aria-label="Vessel">${shipOptions(p.ship)}</select>`;
       if (p.mode === 'route') {
@@ -718,12 +731,7 @@
         .on('click', () => select(v.id)).addTo(m);
     });
     const leg = document.createElement('div'); leg.className = 'tinfo'; leg.setAttribute('aria-label', 'Legend');
-    const cats = [...new Set(vessels.map(catOf))].sort((a, b) => catCompare(a, b, defaultCat));
-    const chips = cats.length > 1 || catOrder.length ? cats.map(c => {
-      const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
-      const on = !hiddenCats.has(c);
-      return `<button class="catchip" data-hc="${esc(c)}" aria-pressed="${on}" title="${on ? 'Hide' : 'Show'} ${esc(c)} on the map">${dot}<span class="cn">${esc(c)}</span></button>`;
-    }).join('') : '';
+    const chips = catChips(hiddenCats, 'map');
     leg.innerHTML = chips + (colourBy === 'category' && catOrder.length ? ''
       : '<span><i class="dot fresh"></i>Last 3 days</span><span><i class="dot stale"></i>3–7 days</span><span><i class="dot old"></i>Over 7 days</span>');
     leg.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => {
@@ -831,9 +839,13 @@
 
   // ---------- timeline of tracking periods ----------
   function drawTimeline(p, body) {
-    const list = visible().filter(v => !isNaN(Date.parse(v.start_date)) && !isNaN(Date.parse(v.end_date)))
+    p.el.querySelectorAll('.ptool [data-hc]').forEach(b => b.onclick = () => {
+      const c = b.dataset.hc; hiddenCatsTL.has(c) ? hiddenCatsTL.delete(c) : hiddenCatsTL.add(c); saveHiddenTL();
+      P.forEach(q => q.mode === 'timeline' && renderPane(q));
+    });
+    const list = visible().filter(v => !hiddenCatsTL.has(catOf(v)) && !isNaN(Date.parse(v.start_date)) && !isNaN(Date.parse(v.end_date)))
       .sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true }));
-    if (!list.length) { body.innerHTML = '<div class="msg">No tracking periods (start_date / end_date) in vessels.csv.</div>'; return; }
+    if (!list.length) { body.innerHTML = `<div class="msg">${hiddenCatsTL.size ? 'No ships to show. Some categories are hidden: click a category above to show it.' : 'No tracking periods (start_date / end_date) in vessels.csv.'}</div>`; return; }
     const day = 864e5, lo0 = Math.min(...list.map(v => Date.parse(v.start_date))), hi0 = Math.max(...list.map(v => Date.parse(v.end_date)));
     const lo = new Date(lo0), hi = new Date(hi0);
     const start = Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth(), 1), end = Date.UTC(hi.getUTCFullYear(), hi.getUTCMonth() + 1, 1);

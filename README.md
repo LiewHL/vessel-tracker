@@ -123,7 +123,7 @@ corners; set `"active": false` to pause one, and update `"updated"` (shown in al
 `storm_distance_nm` sets the storm distance.
 
 **Dashboard extras:**
-- **Timeline (periods):** a map-panel option showing every ship's tracking period, with today marked. Click a bar to select the ship.
+- **Timeline (periods):** a map-panel option showing every ship's tracking period (coloured by category), with today marked. Click a bar to select the ship; click a category chip to hide/show it (remembered on this device, separately from the fleet map).
 - **Info ▾** in the route panel: flag, type, size, draught, call sign, destination/ETA (from the ship's AIS), tracking period, ship time, countries visited and recent port calls.
 - **Port calls** on the route map: B = berthed, A = at anchor, S = stopped offshore.
 - **Ship time:** under "Last seen" (nautical time zone, so approximate near coasts).
