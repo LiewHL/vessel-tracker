@@ -271,27 +271,50 @@ def stay_text(c):
     return f"at least {fmt_h(lo)}"
 
 
-def calls_table(rows, w):
+def calls_table(rows, w, colours=None, open_cat=""):
+    """Port calls as category -> ship -> list of calls; everything starts closed."""
     e = html.escape
-    trs = []
+    colours = colours or {}
+    cats = {}
     for r in rows:
-        for c in r["calls"]:
-            dep = fmt_sgt(c["departed"], False) if c["departed"] else "still there at last report"
-            trs.append(f"<tr><td><b>{e(r['v']['id'])}</b> {e(r['v']['vessel_name'])}</td><td>{e(c['kind'])}</td>"
-                       f"<td>{e(c['place'] or '—')}</td><td class=mono>{e(fmt_sgt(c['start'], False))}</td>"
-                       f"<td class=mono>{e(dep)}</td><td class=num>{e(stay_text(c))}</td></tr>")
-    if not trs:
+        if not r["calls"]:
+            continue
+        cat = (r["v"].get("category") or "").strip() or "No category"
+        cats.setdefault(cat, []).append(r)
+    if not cats:
         return f'<p class="sub">No port calls or stops detected this {w}.</p>'
-    table = ('<div class="tablewrap"><table class="small"><thead><tr><th>Ship</th><th>Type</th><th>Place</th>'
-            '<th>First logged stopped (SGT)</th><th>Logged under way again</th><th class=num>Stopped for</th></tr></thead>'
-            f'<tbody>{"".join(trs)}</tbody></table></div>'
+    head = ('<thead><tr><th>Type</th><th>Place</th><th>First logged stopped (SGT)</th>'
+            '<th>Logged under way again</th><th class=num>Stopped for</th></tr></thead>')
+    out = []
+    for cat in sorted(cats, key=lambda c: category_rank(c, open_cat)):
+        ships = []
+        for r in cats[cat]:
+            v, calls = r["v"], r["calls"]
+            trs = "".join(
+                f"<tr><td>{e(c['kind'])}</td><td>{e(c['place'] or '—')}</td>"
+                f"<td class=mono>{e(fmt_sgt(c['start'], False))}</td>"
+                f"<td class=mono>{e(fmt_sgt(c['departed'], False) if c['departed'] else 'still there at last report')}</td>"
+                f"<td class=num>{e(stay_text(c))}</td></tr>" for c in calls)
+            places = []
+            for c in calls:
+                name = (c["place"] or "").split(",")[0]
+                if name and name not in places:
+                    places.append(name)
+            ships.append(
+                f'<details class="ship"><summary><b>{e(v["id"])}</b>&nbsp;{e(v["vessel_name"])}'
+                f' <span class="sub">· {len(calls)} call{"s" if len(calls) != 1 else ""}'
+                f'{(" · " + e(", ".join(places[:4])) + (" …" if len(places) > 4 else "")) if places else ""}</span></summary>'
+                f'<div class="tablewrap" style="margin:0 0 10px 18px"><table class="small">{head}<tbody>{trs}</tbody></table></div></details>')
+        n = sum(len(r["calls"]) for r in cats[cat])
+        out.append(
+            f'<details class="grp"><summary><span class="dot" style="background:{colours.get(cat, "#8a96a0")}"></span>'
+            f'<b>{e(cat)}</b> <span class="sub">· {n} call{"s" if n != 1 else ""} · {len(cats[cat])} ship{"s" if len(cats[cat]) != 1 else ""}</span></summary>'
+            f'<div class="ships">{"".join(ships)}</div></details>')
+    return ("".join(out) +
             '<p class="sub">Detected from logged positions: stopped (under 0.5 kn) or AIS status Moored / At anchor. '
             '"Berthed" = within 5 nm of a port or Moored; "At anchor" = within 30 nm; "Stopped offshore" = further out '
             '(possible anchorage or ship-to-ship work). Times are when the logger heard the ship, so real arrival is earlier '
             'and departure later. "Stopped for" gives the range the logged positions allow.</p>')
-    if len(trs) <= 8:
-        return table
-    return f'<details class="grp"><summary><b>{len(trs)} port calls / stops</b> <span class="sub">· click to show</span></summary><div style="padding:0 8px 8px">{table}</div></details>'
 
 
 def coming_up(ctx):
@@ -311,22 +334,38 @@ def alerts_section(ctx, w):
     return f'<section><h2>Alerts this {w} ({len(ctx["alerts"])})</h2><ul class="alerts">{items}</ul></section>'
 
 
-def places_table(rows, w):
+def places_table(rows, w, colours=None, open_cat=""):
+    """Countries and ports as category -> ship -> details; everything starts closed."""
     e = html.escape
-    trs = []
+    colours = colours or {}
+    cats = {}
     for r in rows:
-        if not r["track"]:
-            continue
-        ports = places_visited(r["track"])
-        trs.append(f"<tr><td><b>{e(r['v']['id'])}</b> {e(r['v']['vessel_name'])}</td>"
-                   f"<td>{e(', '.join(r['countries'])) or '—'}</td><td>{e(' → '.join(ports)) or '—'}</td>"
-                   f"<td class=num>{len(r['calls'])}</td></tr>")
-    countries = sorted({c for r in rows for c in r["countries"]})
-    if not trs:
+        if r["track"]:
+            cat = (r["v"].get("category") or "").strip() or "No category"
+            cats.setdefault(cat, []).append(r)
+    if not cats:
         return f'<p class="sub">No positions logged this {w}.</p>'
-    return (f'<p><b>{len(countries)}</b> countr{"y" if len(countries) == 1 else "ies"} visited this {w}: {e(", ".join(countries)) or "—"}</p>'
-            '<div class="tablewrap"><table class="small"><thead><tr><th>Ship</th><th>Countries</th><th>Ports (within 30 nm, in order)</th>'
-            f'<th class=num>Port calls</th></tr></thead><tbody>{"".join(trs)}</tbody></table></div>')
+    countries = sorted({c for r in rows for c in r["countries"]})
+    out = [f'<p><b>{len(countries)}</b> countr{"y" if len(countries) == 1 else "ies"} visited this {w}: '
+           f'{e(", ".join(countries)) or "—"}</p>']
+    for cat in sorted(cats, key=lambda c: category_rank(c, open_cat)):
+        ships, cat_countries = [], set()
+        for r in cats[cat]:
+            v = r["v"]
+            ports = places_visited(r["track"])
+            cat_countries.update(r["countries"])
+            ships.append(
+                f'<details class="ship"><summary><b>{e(v["id"])}</b>&nbsp;{e(v["vessel_name"])}'
+                f' <span class="sub">· {e(", ".join(r["countries"])) or "no port within 30 nm"}</span></summary>'
+                f'<dl class="kv"><dt>Countries</dt><dd>{e(", ".join(r["countries"])) or "—"}</dd>'
+                f'<dt>Ports (in order)</dt><dd>{e(" → ".join(ports)) or "None within 30 nm of a port"}</dd>'
+                f'<dt>Port calls / stops</dt><dd>{len(r["calls"])}</dd></dl></details>')
+        out.append(
+            f'<details class="grp"><summary><span class="dot" style="background:{colours.get(cat, "#8a96a0")}"></span>'
+            f'<b>{e(cat)}</b> <span class="sub">· {len(cat_countries)} countr{"y" if len(cat_countries) == 1 else "ies"}'
+            f' · {len(cats[cat])} ship{"s" if len(cats[cat]) != 1 else ""}</span></summary>'
+            f'<div class="ships">{"".join(ships)}</div></details>')
+    return "".join(out)
 
 
 def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
@@ -334,6 +373,9 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     e = html.escape
     monthly = kind != "weekly"
     w = WORD[kind]
+    last_head = {"weekly": "Last position", "monthly": "Position at month end",
+                 "quarterly": "Position at quarter end"}[kind]
+    colours = category_colours(ctx["roster"])
     map_data, groups = [], {}
     for r in rows:
         v, last, seen = r["v"], r["last"], r["seen"]
@@ -342,6 +384,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         if has_pos:
             map_data.append({
                 "id": v["id"], "name": v["vessel_name"], "state": r["state"],
+                "cat": (v.get("category") or "").strip() or "No category",
                 "lat": last["lat"], "lon": last["lon"],
                 "track": [[f["lat"], f["lon"]] for f in r["track"]],
             })
@@ -358,30 +401,34 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         seen_sub = f"{e(fmt_sgt(seen))} SGT · {e(age_text(seen, as_of))}" if seen else "&nbsp;"
         visited = places_visited(r["track"])
         extra = f"<td>{e(' → '.join(visited)) if visited else '<span class=sub>None within 30 nm of a port</span>' if r['track'] else '—'}</td>"
-        name_html = (f'<button type="button" class="vbtn" data-id="{e(v["id"])}" title="Show on map">{e(v["vessel_name"])}</button>'
-                     if has_pos else f'{e(v["vessel_name"])} <span class="sub">(no position)</span>')
+        map_btn = (f'<button type="button" class="vbtn" data-id="{e(v["id"])}" title="Show on map">Map</button>'
+                   if has_pos else '<span class="sub">no position</span>')
         cat = (v.get("category") or "").strip() or "No category"
         g = groups.setdefault(cat, {"rows": [], "heard": 0})
         g["heard"] += 1 if r["track"] else 0
+        short_seen = age_text(seen, as_of) if seen else "no position yet"
+        places_txt = (" → ".join(visited) if visited else "None within 30 nm of a port") if r["track"] else "—"
         g["rows"].append(f"""
-      <tr data-id="{e(v['id'])}">
-        <td><b>{e(v['id'])}</b></td>
-        <td>{name_html}<div class="sub">{e(v.get('company', ''))} · {link}</div></td>
-        <td>{e(r['prog'])}</td>
-        <td><span class="dot {r['state']}"></span>{e(LABEL[r['state']])}<div class="sub">{seen_sub}</div></td>
-        <td><div class="mono">{e(pos)}</div><div class="place">{e(place)}</div><div class="sub">{e(' · '.join(motion)) or '&nbsp;'}</div></td>
-        {extra}
-        <td class="num">{r['days']}/{ndays}</td>
-        <td class="num">{len(r['track'])}</td>
-        <td class="num">{r['dist']:.0f}</td>
-      </tr>""")
+      <details class="ship" data-id="{e(v['id'])}">
+        <summary><span class="dot {r['state']}"></span><b>{e(v['id'])}</b>&nbsp;{e(v['vessel_name'])}
+          <span class="sub">· {e(short_seen)}{(' · ' + e(place)) if place else ''}</span>
+          <span class="sp"></span>{map_btn}</summary>
+        <dl class="kv">
+          <dt>Company</dt><dd>{e(v.get('company', '')) or '—'} · {link}</dd>
+          <dt>Period</dt><dd>{e(r['prog'])}</dd>
+          <dt>{e(last_head)}</dt><dd><span class="dot {r['state']}"></span>{e(LABEL[r['state']])}<div class="sub">{seen_sub}</div></dd>
+          <dt>Position</dt><dd><span class="mono">{e(pos)}</span>{('<div>' + e(place) + '</div>') if place else ''}<div class="sub">{e(' · '.join(motion))}</div></dd>
+          <dt>Places this {w}</dt><dd>{e(places_txt)}</dd>
+          <dt>Logged this {w}</dt><dd>{r['days']}/{ndays} days heard · {len(r['track'])} positions · {r['dist']:.0f} nm</dd>
+        </dl>
+      </details>""")
 
     for v in ctx.get("standby", []):
         cat = (v.get("category") or "").strip() or "No category"
         g = groups.setdefault(cat, {"rows": [], "heard": 0})
         g["sb"] = g.get("sb", 0) + 1
         g.setdefault("sbrows", []).append(
-            f'<tr class="sb"><td><b>{e(v["id"])}</b></td><td colspan="8" class="sub">Standby · no vessel assigned yet</td></tr>')
+            f'<div class="sbline"><b>{e(v["id"])}</b> <span class="sub">Standby · no vessel assigned yet</span></div>')
 
     follow = ""
     if follow_up:
@@ -431,26 +478,42 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         if g.get("sb"):
             parts.append(f'{g["sb"]} standby')
         return " · ".join(parts)
+    # Category -> ship -> details; everything starts closed (printing opens all).
     groups_html = "".join(
-        f'<details class="grp"{" open" if cat == open_cat else ""}>'
-        f'<summary><b>{e(cat)}</b> <span class="sub">· {e(grp_summary(g))}</span></summary>'
-        f'<div class="tablewrap"><table>{thead}<tbody>{"".join(g["rows"] + g.get("sbrows", []))}</tbody></table></div></details>'
+        f'<details class="grp" data-cat="{e(cat)}">'
+        f'<summary><span class="dot" style="background:{colours.get(cat, "#8a96a0")}"></span><b>{e(cat)}</b>'
+        f' <span class="sub">· {e(grp_summary(g))}</span></summary>'
+        f'<div class="ships">{"".join(g["rows"] + g.get("sbrows", []))}</div></details>'
         for cat, g in sorted(groups.items(), key=lambda kv: category_rank(kv[0], open_cat)))
     # timeline (monthly + quarterly): ships whose period overlaps a window around the report period
     timeline = ""
     if monthly:
         ps, pe = ctx["start"].astimezone(SGT).date(), (as_of.astimezone(SGT) - timedelta(seconds=1)).date()
-        order = sorted(ctx["roster"], key=lambda v: (category_rank((v.get("category") or "No category"),
-                       latest_category({(x.get("category") or "No category") for x in ctx["roster"]})), v["id"]))
-        svg = timeline_svg(order, category_colours(ctx["roster"]), ctx["today"], highlight=(ps, pe))
+        # One collapsible timeline per category, all on the same time scale so they line up.
+        dated = [st for v in ctx["roster"] for st in v.get("stints", []) if st["start"]]
+        ends = [x for v in ctx["roster"] for x in ((v.get("period") or {}).get("expected_end"),) if x]
+        ends += [st["end"] for st in dated if st["end"]]
+        lo = min([st["start"] for st in dated] + [ps]) if dated else ps
+        hi = max(ends + [ctx["today"], pe])
+        by_cat = {}
+        for v in ctx["roster"]:
+            by_cat.setdefault((v.get("category") or "").strip() or "No category", []).append(v)
+        parts = []
+        for cat in sorted(by_cat, key=lambda c: category_rank(c, open_cat)):
+            ships = sorted(by_cat[cat], key=lambda v: v["id"])
+            svg = timeline_svg(ships, colours, ctx["today"], window_start=lo, window_end=hi, highlight=(ps, pe))
+            parts.append(f'<details class="grp"><summary><span class="dot" style="background:{colours.get(cat, "#8a96a0")}"></span>'
+                         f'<b>{e(cat)}</b> <span class="sub">· {len(ships)} ship{"s" if len(ships) != 1 else ""}</span></summary>'
+                         f'<div style="padding:8px 10px">{svg}</div></details>')
+        svg = "".join(parts)
         timeline = (f'<section class="tl"><h2>Tracking periods</h2>{svg}<p class="sub">Solid = time on board (each stint); '
                     f'dashed = expected time still needed to reach 182 days (26 weeks). Colour = category. '
                     f'The shaded band is this {w}; the red line is today.</p></section>')
-    extra_sections = alerts_section(ctx, w) + coming_up(ctx) + timeline
+    side_sections = alerts_section(ctx, w) + coming_up(ctx)
+    lower_sections = []          # shown side by side on wide screens
     if kind != "quarterly":     # the one-pager shows port-call counts in the places table instead
-        extra_sections += f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w)}</section>'
-    if monthly:
-        extra_sections += f'<section><h2>Countries and ports visited this {w}</h2>{places_table(rows, w)}</section>'
+        lower_sections.append(f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w, colours, open_cat)}</section>')
+    lower_sections.append(f'<section><h2>Countries and ports visited this {w}</h2>{places_table(rows, w, colours, open_cat)}</section>')
     if kind == "quarterly":     # one-pager: no long per-ship detail table
         groups_html = ""
     kpi_html = "".join(f'<div class="kpi"><b style="color:var(--{c})">{n}</b><span>{e(l)}</span></div>' for n, l, c in kpis)
@@ -465,7 +528,16 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
           --fresh:#1f8a4c; --stale:#c98a00; --old:#c0392b; --none:#8a96a0; --accent:#0b4f7a; }}
   * {{ box-sizing:border-box; }}
   body {{ margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }}
-  main {{ max-width:1140px; margin:0 auto; padding:24px 16px 48px; }}
+  main {{ max-width:1680px; margin:0 auto; padding:24px 16px 48px; }}
+  /* wide screens: map on the left (stays in view), details on the right; lower tables side by side */
+  .cols, .cols2 {{ display:grid; grid-template-columns:minmax(0,1fr); gap:0 16px; }}
+  @media (min-width:1100px) {{
+    .cols {{ grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); align-items:start; }}
+    .colL {{ position:sticky; top:12px; }}
+    #map {{ height:min(68vh, 620px) !important; }}
+    .cols2 {{ grid-template-columns:repeat(auto-fit, minmax(480px, 1fr)); align-items:start; }}
+    .kpis {{ grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); }}
+  }}
   h1 {{ font-size:22px; margin:0 0 4px; }}
   h2 {{ font-size:16px; margin:0 0 10px; }}
   .meta {{ color:var(--muted); margin-bottom:18px; }}
@@ -496,49 +568,112 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
   details.grp[open] > summary::before {{ transform:rotate(90deg); }}
   details.grp[open] > summary {{ border-bottom:1px solid var(--line); }}
   details.grp .tablewrap {{ padding:0 8px 8px; }}
+  details.grp .ships {{ padding:4px 8px 8px 22px; }}
+  details.ship {{ border-bottom:1px solid var(--line); }}
+  details.ship:last-child {{ border-bottom:0; }}
+  details.ship > summary {{ cursor:pointer; list-style:none; display:flex; flex-wrap:wrap; gap:4px 6px; align-items:center; padding:8px 4px; }}
+  details.ship > summary::-webkit-details-marker {{ display:none; }}
+  details.ship > summary::before {{ content:"▸"; color:var(--muted); font-size:12px; transition:transform .15s; }}
+  details.ship[open] > summary::before {{ transform:rotate(90deg); }}
+  details.ship .sp {{ flex:1; }}
+  dl.kv {{ display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; margin:0 0 10px 18px; font-size:13px; }}
+  dl.kv dt {{ color:var(--muted); }} dl.kv dd {{ margin:0; }}
+  .sbline {{ padding:6px 4px; border-bottom:1px solid var(--line); }}
+  .maptools {{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-bottom:8px; }}
+  .seg {{ display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }}
+  .seg button {{ font:inherit; font-size:12px; font-weight:600; border:0; background:#fff; color:var(--muted); padding:4px 10px; cursor:pointer; }}
+  .seg button + button {{ border-left:1px solid var(--line); }}
+  .seg button.on {{ background:var(--accent); color:#fff; }}
+  .chips {{ display:flex; flex-wrap:wrap; gap:6px; }}
+  .catchip {{ font:inherit; font-size:12px; display:inline-flex; align-items:center; padding:2px 9px; border:1px solid var(--line); border-radius:999px; background:#fff; cursor:pointer; }}
+  .catchip[aria-pressed="false"] {{ color:var(--muted); border-style:dashed; background:transparent; }}
+  .catchip[aria-pressed="false"] .dot {{ background:transparent !important; box-shadow:inset 0 0 0 1.5px var(--none); }}
+  .catchip[aria-pressed="false"] .cn {{ text-decoration:line-through; }}
+  .legend {{ display:flex; gap:10px; font-size:12px; color:var(--muted); }}
+  .legend[hidden] {{ display:none; }}
+  @media print {{ .maptools .seg, .chips {{ display:none; }} }}
   .vbtn {{ font:inherit; font-weight:600; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; text-align:left; text-decoration:underline; text-underline-offset:2px; }}
-  tr.hl td {{ background:#eaf3f9; }}
+  tr.hl td, details.ship.hl > summary {{ background:#eaf3f9; }}
   table.small {{ min-width:640px; font-size:13px; }}
   tr.sb td {{ padding:4px 6px; }}
   ul.alerts {{ margin:0; padding-left:18px; }} ul.alerts li {{ margin:3px 0; }}
-  .tl svg {{ display:block; }}
-  @media print {{ .vbtn {{ text-decoration:none; color:inherit; }} body {{ background:#fff; }} section, .kpi {{ break-inside:avoid; }} #map {{ height:300px; }} }}
+  .tl svg {{ display:block; max-width:1100px; }}
+  @media print {{ .vbtn {{ text-decoration:none; color:inherit; }} body {{ background:#fff; }} section, .kpi {{ break-inside:avoid; }} #map {{ height:300px !important; }} .cols, .cols2 {{ display:block; }} .colL {{ position:static; }} }}
 </style></head>
 <body><main>
   <h1>{e(title)}</h1>
   <div class="meta">Period {e(period)} · Generated {e(fmt_sgt(generated))} SGT{(' · ' + status_note) if status_note else ''}</div>
   <div class="kpis">{kpi_html}</div>
   {follow}
-  <section><h2>{e(map_title)}</h2><div id="map"></div></section>
-  {extra_sections}
+  <div class="cols">
+  <div class="colL">
+  <section class="mapsec"><h2>{e(map_title)}</h2>
+  <div class="maptools">
+    <div class="seg" role="group" aria-label="Colour ships by"><button type="button" data-c="cat" class="on">Category</button><button type="button" data-c="state">Last seen</button></div>
+    <div class="chips" id="chips" aria-label="Show or hide categories on the map">{"".join(
+        f'<button type="button" class="catchip" data-hc="{e(c)}" aria-pressed="true" title="Hide {e(c)} on the map"><span class="dot" style="background:{colours.get(c, "#8a96a0")}"></span><span class="cn">{e(c)}</span></button>'
+        for c in sorted({m["cat"] for m in map_data}, key=lambda c: category_rank(c, open_cat)))}</div>
+    <div class="legend" id="legend" hidden><span><span class="dot fresh"></span>Last 3 days</span><span><span class="dot stale"></span>3–7 days</span><span><span class="dot old"></span>Over 7 days</span></div>
+  </div>
+  <div id="map"></div></section>
+  </div>
+  <div class="colR">
   {'' if not groups_html else f"""<section><h2>Ship details</h2>
-  <p class="sub" style="margin-top:-6px">Click a vessel name to show it on the map. Click a category to open or close it.</p>
+  <p class="sub" style="margin-top:-6px">Open a category, then a ship for its details. "Map" shows the ship on the map.</p>
   {groups_html}</section>"""}
+  {side_sections}
+  </div>
+  </div>
+  {timeline}
+  <div class="cols2">{"".join(lower_sections)}</div>
   <p class="foot">Positions come from shore-based AIS receivers (AISStream), logged on a schedule. Ships far from coasts may show older positions until they come back into range. "Distance" is the straight-line sum between logged positions in the period, so it understates the real distance sailed. Places are the nearest ports from the World Port Index (NGA Pub. 150).</p>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
   const ships = {json.dumps(map_data)};
   const colors = {{fresh:'#1f8a4c', stale:'#c98a00', old:'#c0392b', none:'#8a96a0'}};
+  const catColors = {json.dumps(colours)};
+  let colourBy = 'cat';
+  const hidden = new Set();
+  const colOf = s => colourBy === 'cat' ? (catColors[s.cat] || '#8a96a0') : colors[s.state];
   try {{
     const map = L.map('map', {{worldCopyJump:true}}).setView([5, 105], 3);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{maxZoom:12, attribution:'Tiles © Esri — Esri, HERE, Garmin, USGS, NGA, and other contributors'}}).addTo(map);
     const pts = [], byId = {{}};
     ships.forEach(s => {{
-      const line = s.track.length > 1 ? L.polyline(s.track, {{color:colors[s.state], weight:2, opacity:.6}}).addTo(map) : null;
-      const mk = L.circleMarker([s.lat, s.lon], {{radius:7, color:'#fff', weight:2, fillColor:colors[s.state], fillOpacity:1}})
+      const line = s.track.length > 1 ? L.polyline(s.track, {{color:colOf(s), weight:2, opacity:.6}}).addTo(map) : null;
+      const mk = L.circleMarker([s.lat, s.lon], {{radius:7, color:'#fff', weight:2, fillColor:colOf(s), fillOpacity:1}})
         .bindTooltip(s.id + ' · ' + s.name, {{permanent:ships.length <= 12, direction:'right', offset:[8,0]}}).addTo(map);
       byId[s.id] = {{s, mk, line}};
       pts.push([s.lat, s.lon]);
       s.track.forEach(p => pts.push(p));
     }});
     if (pts.length) map.fitBounds(pts, {{padding:[30,30], maxZoom:7}});
+    const recolour = () => Object.values(byId).forEach(o => {{ o.mk.setStyle({{fillColor:colOf(o.s)}}); if (o.line) o.line.setStyle({{color:colOf(o.s)}}); }});
+    document.querySelectorAll('.seg [data-c]').forEach(b => b.addEventListener('click', () => {{
+      colourBy = b.dataset.c;
+      document.querySelectorAll('.seg [data-c]').forEach(x => x.classList.toggle('on', x === b));
+      document.getElementById('legend').hidden = colourBy !== 'state';
+      recolour();
+    }}));
+    const showCat = (cat, on) => Object.values(byId).forEach(o => {{
+      if (o.s.cat !== cat) return;
+      [o.mk, o.line].forEach(l => {{ if (!l) return; if (on) l.addTo(map); else map.removeLayer(l); }});
+    }});
+    document.querySelectorAll('.catchip').forEach(b => b.addEventListener('click', () => {{
+      const c = b.dataset.hc, on = hidden.has(c);
+      on ? hidden.delete(c) : hidden.add(c);
+      b.setAttribute('aria-pressed', on); b.title = (on ? 'Hide ' : 'Show ') + c + ' on the map';
+      showCat(c, on);
+    }}));
     let current = null;
-    document.querySelectorAll('.vbtn').forEach(b => b.addEventListener('click', () => {{
+    document.querySelectorAll('.vbtn').forEach(b => b.addEventListener('click', ev => {{
+      ev.preventDefault(); ev.stopPropagation();          // the button sits in a summary: don't toggle it
       const o = byId[b.dataset.id]; if (!o) return;
+      if (hidden.has(o.s.cat)) {{ const chip = [...document.querySelectorAll('.catchip')].find(x => x.dataset.hc === o.s.cat); if (chip) chip.click(); }}
       if (current) {{ current.mk.setRadius(7); if (current.line) current.line.setStyle({{weight:2, opacity:.6}}); }}
-      document.querySelectorAll('tr.hl').forEach(t => t.classList.remove('hl'));
-      b.closest('tr').classList.add('hl');
+      document.querySelectorAll('details.ship.hl').forEach(t => t.classList.remove('hl'));
+      b.closest('details.ship').classList.add('hl');
       o.mk.setRadius(11); o.mk.bringToFront();
       if (o.line) {{ o.line.setStyle({{weight:4, opacity:1}}); o.line.bringToFront(); o.mk.bringToFront(); }}
       document.getElementById('map').scrollIntoView({{behavior:'smooth', block:'center'}});
@@ -549,8 +684,8 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     }}));
   }} catch (err) {{ document.getElementById('map').textContent = 'Map could not load.'; }}
   // Printing / Save as PDF shows every category
-  window.addEventListener('beforeprint', () => document.querySelectorAll('details.grp').forEach(d => {{ d.dataset.was = d.open; d.open = true; }}));
-  window.addEventListener('afterprint', () => document.querySelectorAll('details.grp').forEach(d => {{ d.open = d.dataset.was === 'true'; }}));
+  window.addEventListener('beforeprint', () => document.querySelectorAll('details').forEach(d => {{ d.dataset.was = d.open; d.open = true; }}));
+  window.addEventListener('afterprint', () => document.querySelectorAll('details').forEach(d => {{ d.open = d.dataset.was === 'true'; }}));
 </script>
 </body></html>
 """

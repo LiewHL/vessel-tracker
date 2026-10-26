@@ -8,6 +8,9 @@ on:
       source:
         description: "Leave as 'manual' (the hourly logger sends 'auto' when a report is due)"
         default: "manual"
+      email:
+        description: "Email the report? (yes / no)"
+        default: "yes"
 
 permissions:
   contents: write
@@ -77,7 +80,7 @@ jobs:
 
       # The emailed copy is readable (it is never saved to the public site).
       - name: Email the weekly report (private - recipients and login are GitHub secrets)
-        if: steps.due.outputs.go == 'true'
+        if: steps.due.outputs.go == 'true' && github.event.inputs.email != 'no'
         env:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
