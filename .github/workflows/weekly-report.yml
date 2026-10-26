@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "50 23 * * 0"       # Sunday 23:50 UTC = Monday 07:50 Singapore time
   workflow_dispatch:
+    inputs:
+      source:
+        description: "Leave as 'manual' (the hourly logger sends 'auto' when a report is due)"
+        default: "manual"
 
 permissions:
   contents: write
@@ -34,8 +38,22 @@ jobs:
           REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
         run: python scripts/vault.py open
 
+      # Timed starts (GitHub's timer or the hourly logger) skip if this report was already made.
+      - name: Is the report still due?
+        id: due
+        env:
+          TIMED: ${{ github.event_name == 'schedule' || github.event.inputs.source == 'auto' }}
+        run: |
+          if [ "$TIMED" = "true" ] && ! python scripts/due_reports.py check weekly; then
+            echo "::notice::Weekly report already made; nothing to do."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Run logs are public, so only the file name and period are shown.
       - name: Build the weekly report
+        if: steps.due.outputs.go == 'true'
         id: build
         run: |
           python scripts/weekly_report.py > "$RUNNER_TEMP/summary.json"
@@ -43,6 +61,7 @@ jobs:
           echo "period=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
 
       - name: Lock and save the report to the project
+        if: steps.due.outputs.go == 'true'
         env:
           REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
         run: |
@@ -58,6 +77,7 @@ jobs:
 
       # The emailed copy is readable (it is never saved to the public site).
       - name: Email the weekly report (private - recipients and login are GitHub secrets)
+        if: steps.due.outputs.go == 'true'
         env:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

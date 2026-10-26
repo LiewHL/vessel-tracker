@@ -8,6 +8,9 @@ on:
       quarter:
         description: "Quarter to report on, YYYY-Qn e.g. 2026-Q4 (leave empty for last quarter)"
         default: ""
+      source:
+        description: "Leave as 'manual' (the hourly logger sends 'auto' when a report is due)"
+        default: "manual"
 
 permissions:
   contents: write
@@ -38,7 +41,21 @@ jobs:
           REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
         run: python scripts/vault.py open
 
+      # Timed starts (GitHub's timer or the hourly logger) skip if this report was already made.
+      - name: Is the report still due?
+        id: due
+        env:
+          TIMED: ${{ github.event_name == 'schedule' || github.event.inputs.source == 'auto' }}
+        run: |
+          if [ "$TIMED" = "true" ] && ! python scripts/due_reports.py check quarterly; then
+            echo "::notice::Quarterly report already made; nothing to do."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build the quarterly summary
+        if: steps.due.outputs.go == 'true'
         id: build
         env:
           QUARTER: ${{ github.event.inputs.quarter }}
@@ -53,6 +70,7 @@ jobs:
           echo "tag=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['date'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
 
       - name: Lock and save the report to the project
+        if: steps.due.outputs.go == 'true'
         env:
           REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
         run: |
@@ -68,6 +86,7 @@ jobs:
 
       # The emailed copy is readable (it is never saved to the public site).
       - name: Email the quarterly summary (private - recipients and login are GitHub secrets)
+        if: steps.due.outputs.go == 'true'
         env:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

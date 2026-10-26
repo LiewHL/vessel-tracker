@@ -8,6 +8,9 @@ on:
       month:
         description: "Month to report on, YYYY-MM (leave empty for last month)"
         default: ""
+      source:
+        description: "Leave as 'manual' (the hourly logger sends 'auto' when a report is due)"
+        default: "manual"
 
 permissions:
   contents: write
@@ -38,7 +41,21 @@ jobs:
           REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
         run: python scripts/vault.py open
 
+      # Timed starts (GitHub's timer or the hourly logger) skip if this report was already made.
+      - name: Is the report still due?
+        id: due
+        env:
+          TIMED: ${{ github.event_name == 'schedule' || github.event.inputs.source == 'auto' }}
+        run: |
+          if [ "$TIMED" = "true" ] && ! python scripts/due_reports.py check monthly; then
+            echo "::notice::Monthly report already made; nothing to do."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build the monthly report
+        if: steps.due.outputs.go == 'true'
         id: build
         env:
           MONTH: ${{ github.event.inputs.month }}
@@ -53,6 +70,7 @@ jobs:
 
       # Once a month the position log is also re-packed into one record (keeps it compact).
       - name: Lock and save the report to the project
+        if: steps.due.outputs.go == 'true'
         env:
           REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
           VAULT_COMPACT: "1"
@@ -69,6 +87,7 @@ jobs:
 
       # The emailed copy is readable (it is never saved to the public site).
       - name: Email the monthly report (private - recipients and login are GitHub secrets)
+        if: steps.due.outputs.go == 'true'
         env:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

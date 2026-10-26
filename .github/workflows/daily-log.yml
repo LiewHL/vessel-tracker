@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  actions: write          # to start reports that are due
 
 concurrency:
   group: vessel-data
@@ -122,3 +123,15 @@ jobs:
           done
           echo "::error::Could not save the log to the project (push failed 3 times)."
           exit 1
+
+      # GitHub's own timer often skips the report schedules, so the hourly run starts any report that is due.
+      - name: Start reports that are due
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for kind in $(python scripts/due_reports.py list); do
+            echo "::notice::Starting the $kind report."
+            gh workflow run "$kind-report.yml" -f source=auto
+          done

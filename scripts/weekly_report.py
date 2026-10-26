@@ -522,7 +522,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
   const colors = {{fresh:'#1f8a4c', stale:'#c98a00', old:'#c0392b', none:'#8a96a0'}};
   try {{
     const map = L.map('map', {{worldCopyJump:true}}).setView([5, 105], 3);
-    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{maxZoom:12, attribution:'© OpenStreetMap'}}).addTo(map);
+    L.tileLayer('https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager/{{z}}/{{x}}/{{y}}{{r}}.png', {{subdomains:'abcd', maxZoom:12, attribution:'© OpenStreetMap contributors © CARTO'}}).addTo(map);
     const pts = [], byId = {{}};
     ships.forEach(s => {{
       const line = s.track.length > 1 ? L.polyline(s.track, {{color:colors[s.state], weight:2, opacity:.6}}).addTo(map) : null;
