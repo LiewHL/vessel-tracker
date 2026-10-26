@@ -4,7 +4,7 @@ A hands-off tracker for a list of ships. It runs entirely on GitHub's servers, s
 
 - **Dashboard:** a web page with a map of each ship's last known position, a list with "last seen" status, and a ↗ link to each ship's live position on VesselFinder.
 - **Position log:** every hour (started by cron-job.org, with GitHub's timer as a backup), a script listens to AISStream for 15 minutes and saves the position of every ship it hears.
-- **Weekly report:** every Monday at 07:50 SGT, a printable report is created, linked on the dashboard and emailed (with CSV files) to the private recipient list.
+- **Weekly report:** every Monday at 07:50 SGT, a printable report is created, linked on the dashboard and emailed (with one Excel workbook: ship summary, positions, port calls, full history) to the private recipient list.
 - **Monthly report:** on the 1st of each month at 08:20 SGT, a report for the previous month (tracks, days heard, positions logged, distance) is created, linked on the dashboard and emailed.
 - **Passcode lock:** positions, run records and reports are stored encrypted. The dashboard asks for the passcode before showing anything.
 
@@ -141,7 +141,7 @@ corners; set `"active": false` to pause one, and update `"updated"` (shown in al
 
 **Reports:** all reports now include alerts, "coming up in the next 14 days" (periods starting/ending) and port calls.
 Monthly and quarterly also include the timeline and countries/ports visited. A **quarterly one-page summary** is
-emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also sent as a CSV file.
+emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also a sheet in the emailed Excel workbook.
 
 ## Status colours
 

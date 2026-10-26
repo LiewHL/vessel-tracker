@@ -1,14 +1,11 @@
-"""CSV files sent with the report emails.
+"""The Excel workbook sent with the report emails (one .xlsx, one sheet per table).
 
   python scripts/export_csv.py weekly  <out_dir>
   python scripts/export_csv.py monthly <out_dir> [YYYY-MM]
   python scripts/export_csv.py quarterly <out_dir> [YYYY-Qn]
 
-Writes four Excel-friendly CSV files (UTF-8 with BOM) and prints their paths:
-  positions_<period>.csv     every logged position in the period
-  ship_summary_<period>.csv  one row per ship for the period
-  port_calls_<period>.csv    port calls / stops detected in the period
-  full_history_<date>.csv    every position logged so far
+Writes vessel_data_<kind>_<period>.xlsx and prints its path. Sheets: Ship summary,
+Positions (period), Port calls, Full history.
 """
 import csv
 import os
@@ -32,6 +29,32 @@ def write(path, header, rows):
         w = csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
+    return path
+
+
+def write_xlsx(path, sheets):
+    """One Excel workbook: sheets = [(name, header, rows)]. Bold frozen header, filters, sensible widths."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    wb = Workbook()
+    wb.remove(wb.active)
+    for name, header, rows in sheets:
+        ws = wb.create_sheet(name[:31])
+        ws.append(header)
+        for r in rows:
+            ws.append(r)
+        for c in ws[1]:
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="0B4F7A")
+            c.alignment = Alignment(vertical="top", wrap_text=True)
+        ws.freeze_panes = "A2"
+        if rows:
+            ws.auto_filter.ref = ws.dimensions
+        for i, col in enumerate(ws.iter_cols(min_row=1, max_row=min(ws.max_row, 300)), start=1):
+            width = max(len(str(c.value)) if c.value is not None else 0 for c in col)
+            ws.column_dimensions[get_column_letter(i)].width = min(max(10, width + 2), 60)
+    wb.save(path)
     return path
 
 
@@ -67,8 +90,7 @@ def main():
     fixes = load_fixes(read_positions())
     label = f"{kind}_{tag}"
 
-    paths = [write(os.path.join(out_dir, f"positions_{label}.csv"), POS_HEADER,
-                   position_rows(fixes, roster, start, as_of))]
+    sheets = [("Positions (period)", POS_HEADER, position_rows(fixes, roster, start, as_of))]
 
     summary = []
     for v in roster:
@@ -85,7 +107,7 @@ def main():
             f"{len({f['t'].astimezone(SGT).date() for f in period})}/{ndays}", len(period), round(dist),
             " -> ".join(places_visited(period)),
         ])
-    paths.append(write(os.path.join(out_dir, f"ship_summary_{label}.csv"), [
+    sheets.insert(0, ("Ship summary", [
         "ID", "Vessel", "Company", "Category", "IMO", "MMSI", "First sign-on", "Expected finish (182 days on board)",
         "Progress (days on board)", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
         "Days heard", "Positions in period", "Distance logged (nm)", "Places visited (within 30 nm)",
@@ -100,14 +122,13 @@ def main():
                               sgt(c["start"]), sgt(c["end"]), sgt(c["departed"]), c["hours"],
                               round((c["departed"] - c["start"]).total_seconds() / 3600, 1) if c["departed"] else "",
                               c["lat"], c["lon"]])
-    paths.append(write(os.path.join(out_dir, f"port_calls_{label}.csv"), [
+    sheets.append(("Port calls", [
         "ID", "Vessel", "Type", "Place", "Country", "First logged stopped (SGT)", "Last logged stopped (SGT)",
         "Logged under way again (SGT)", "Stopped at least (h)", "Stopped at most (h)", "Latitude", "Longitude",
     ], calls))
 
-    paths.append(write(os.path.join(out_dir, f"full_history_to_{ref.astimezone(SGT).date().isoformat()}.csv"),
-                       POS_HEADER, position_rows(fixes, roster)))
-    print("\n".join(paths))
+    sheets.append((f"Full history to {ref.astimezone(SGT):%d %b %Y}", POS_HEADER, position_rows(fixes, roster)))
+    print(write_xlsx(os.path.join(out_dir, f"vessel_data_{label}.xlsx"), sheets))
 
 
 if __name__ == "__main__":

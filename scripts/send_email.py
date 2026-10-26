@@ -37,7 +37,8 @@ def main():
     body = (f"{summary}\n\nDashboard (passcode needed): {dash_url}\n"
             "This and past reports are also under Reports on the dashboard.\n\n"
             "Attached: the full report (open in a browser; Print > Save as PDF for a PDF copy)"
-            + (" and CSV data files for Excel: " + ", ".join(os.path.basename(p) for p in extras) if extras else "")
+            + (" and the data workbook for Excel (" + ", ".join(os.path.basename(p) for p in extras)
+               + ": ship summary, positions, port calls, full history)" if extras else "")
             + ".\n")
 
     msg = EmailMessage()
@@ -51,7 +52,12 @@ def main():
                            filename=os.path.basename(report_path))
     for path in extras:
         with open(path, "rb") as f:
-            msg.add_attachment(f.read(), maintype="text", subtype="csv", filename=os.path.basename(path))
+            if path.endswith(".xlsx"):
+                msg.add_attachment(f.read(), maintype="application",
+                                   subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   filename=os.path.basename(path))
+            else:
+                msg.add_attachment(f.read(), maintype="text", subtype="csv", filename=os.path.basename(path))
 
     try:
         with smtplib.SMTP(host, port, timeout=60) as s:

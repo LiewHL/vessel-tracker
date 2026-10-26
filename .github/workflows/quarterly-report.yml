@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install cryptography
-        run: pip install --quiet "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12"
+        run: pip install --quiet "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12" "openpyxl==3.1.5" "et-xmlfile==2.0.0"
 
       - name: Unlock the data
         env:
@@ -98,9 +98,9 @@ jobs:
           REPO="${GITHUB_REPOSITORY#*/}"
           SITE="https://${OWNER,,}.github.io/${REPO}"
           FILE="${{ steps.build.outputs.file }}"
-          mapfile -t CSVS < <(python scripts/export_csv.py quarterly "$RUNNER_TEMP/csv" "${{ steps.build.outputs.tag }}")
+          mapfile -t FILES < <(python scripts/export_csv.py quarterly "$RUNNER_TEMP/csv" "${{ steps.build.outputs.tag }}")
           set +e
-          python scripts/send_email.py reports/latest-quarterly-summary.md "reports/$FILE" "Quarterly vessel summary: ${{ steps.build.outputs.period }}" "$SITE/" "" "${CSVS[@]}"
+          python scripts/send_email.py reports/latest-quarterly-summary.md "reports/$FILE" "Quarterly vessel summary: ${{ steps.build.outputs.period }}" "$SITE/" "" "${FILES[@]}"
           rc=$?
           if [ $rc -eq 3 ]; then echo "::warning::Email secrets not set, so no email was sent. The report is on the dashboard."; exit 0; fi
           exit $rc
