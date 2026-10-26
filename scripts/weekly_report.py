@@ -199,6 +199,7 @@ def build(kind="weekly", ref=None, month=None):
         "old": counts["old"], "none": counts["none"], "heard": heard_ships,
         "positions": total_fixes, "follow_up": [v["id"] for v in follow_up],
         "port_calls": sum(len(r["calls"]) for r in rows), "alerts": len(alerts),
+        "generated": ref.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     index = [r for r in read_json(REPORT_INDEX, []) if r.get("file") != fname]
     for r in index:

@@ -23,6 +23,11 @@ def due(kind, now=None):
     today = now.date()
     index = read_json(REPORT_INDEX, [])
     made = {(r.get("kind", "weekly"), r.get("date", "")) for r in index}
+    # A monthly/quarterly report made before its period ended (e.g. a test run) doesn't count:
+    # the complete one is still due.
+    final = {(r.get("kind"), r.get("date", "")) for r in index
+             if r.get("generated", "9999") >= now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+             .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     if kind == "weekly":
         monday = today - timedelta(days=today.weekday())
         if today.weekday() > 2 or now < datetime.combine(monday, time(7, 50), SGT):
@@ -32,14 +37,14 @@ def due(kind, now=None):
         if today.day > 7 or now < datetime.combine(today.replace(day=1), time(8, 20), SGT):
             return False
         prev = today.replace(day=1) - timedelta(days=1)
-        return ("monthly", f"{prev:%Y-%m}") not in made
+        return ("monthly", f"{prev:%Y-%m}") not in final
     if kind == "quarterly":
         if today.month not in (1, 4, 7, 10) or today.day > 14 \
                 or now < datetime.combine(today.replace(day=1), time(8, 30), SGT):
             return False
         q = (today.month - 1) // 3
         y, q = (today.year, q) if q else (today.year - 1, 4)
-        return ("quarterly", f"{y}-Q{q}") not in made
+        return ("quarterly", f"{y}-Q{q}") not in final
     return False
 
 
