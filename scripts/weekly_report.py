@@ -25,7 +25,8 @@ from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from insights import (  # noqa: E402
-    active_in, category_colours, countries_visited, port_calls, timeline_svg, upcoming_changes,
+    active_in, category_colours, countries_visited, destination_text, port_calls, timeline_svg,
+    upcoming_changes,
 )
 from common import (  # noqa: E402
     DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, REQUIRED_DAYS, completion_date, period_info, freshness, haversine_nm, load_roster,
@@ -411,7 +412,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         if has_pos and last.get("speed_kn") is not None:
             motion.append(f"{last['speed_kn']} kn")
         if has_pos and last.get("destination"):
-            motion.append(f"→ {last['destination']}")
+            motion.append(f"→ next port {destination_text(last['destination'])}")
         place = place_label(last["lat"], last["lon"]) if has_pos else ""
         link = (f'<a href="https://www.vesselfinder.com/vessels/details/{e(v["imo"])}">IMO {e(v["imo"])}</a>'
                 if v.get("imo") else "—")

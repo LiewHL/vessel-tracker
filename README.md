@@ -169,6 +169,7 @@ emailed on 1 Jan/Apr/Jul/Oct at 08:30 SGT. Port calls are also a sheet in the em
 | `scripts/vault.py` | Locks and unlocks the data | No |
 | `scripts/` | The logger and report programs | No |
 | `assets/ports.json` | World port list used for place names (World Port Index, NGA Pub. 150) | No |
+| `assets/locode.json` | UN/LOCODE port codes, to show AIS destinations like `CNYSA` as "Yangshan, China" (refresh with Actions > Update port codes) | No |
 | `.github/workflows/` | The daily, weekly and monthly schedules | Only to change times |
 
 ## Reliable start (cron-job.org)

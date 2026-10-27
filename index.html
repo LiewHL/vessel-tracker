@@ -271,6 +271,7 @@
   const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
   const MODES = { fleet:'Fleet map', route:'Vessel route / history', timeline:'Timeline (periods)' };
 
+  let locode = {};          // UN/LOCODE port codes, loaded after the page is shown
   let vessels = [], standby = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
   let filter = 'all', catFilter = '', query = '', sortKey = '', sortDir = 1, selectedId = '';
   const store = {
@@ -287,7 +288,7 @@
   const isDark = () => window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
   // ---------- passcode lock: data is stored encrypted in vault/ (see scripts/vault.py) ----------
   const VAULT = { on:false, key:null, meta:null };
-  const PLAIN = new Set(['vessels.csv', 'assets/ports.json', 'assets/mid.json']);
+  const PLAIN = new Set(['vessels.csv', 'assets/ports.json', 'assets/mid.json', 'assets/locode.json']);
   const CHECK = 'vessel-tracker-vault-ok', KEY_SLOT = 'vt-vault-key';
   const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
   const b64e = u => btoa(String.fromCharCode(...u));
@@ -435,6 +436,24 @@
     }
     if (cur) { cur.departed = null; calls.push(cur); }
     return calls;
+  }
+  // Readable AIS destination: crews often type UN/LOCODEs, e.g. 'FRLEH-->CNYSA' = Le Havre -> Yangshan.
+  function destination(raw) {
+    raw = (raw || '').trim(); if (!raw) return { next:'', from:'', raw:'' };
+    const parts = raw.toUpperCase().split(/\s*(?:-+>|=+>|<-+>|<>|>|\/|\bTO\b|\bVIA\b)\s*/).filter(x => x && x.trim());
+    const name = x => {
+      const w = x.trim(), m = /^([A-Z]{2})\s?([A-Z0-9]{3})$/.exec(w);
+      if (m && locode[m[1] + m[2]]) return locode[m[1] + m[2]];
+      return w.length > 3 && /^[A-Z ]+$/.test(w) ? w.toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : w;
+    };
+    const named = parts.length ? parts.map(name) : [raw];
+    let next = named[named.length - 1];
+    if (next.toUpperCase() === raw.toUpperCase()) next = raw;
+    return { next, from:named.length > 1 ? named[named.length - 2] : '', raw };
+  }
+  function destHTML(raw) {
+    const d = destination(raw); if (!d.raw) return '';
+    return `<div class="sub dest" title="AIS destination as typed by the crew: ${esc(d.raw)}">→ <b>${esc(d.next)}</b>${d.from ? ` <span>(from ${esc(d.from)})</span>` : ''}</div>`;
   }
   const fmtH = h => h < 48 ? `${Math.round(h)} h` : `${(h / 24).toFixed(1)} d`;
   function stayText(c) {
@@ -625,7 +644,7 @@
             ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}
             ${p.longitude != null ? `<div class="sub" title="Approximate ship time (nautical time zone)">Ship ~${esc(shipTime(p.longitude))}</div>` : ''}</td>
         <td>${p.latitude != null ? esc(v._place || coord(p.latitude, p.longitude)) : '<span class="sub">—</span>'}
-            ${p.destination ? `<div class="sub">→ ${esc(p.destination)}</div>` : ''}
+            ${destHTML(p.destination)}
             ${status ? `<div class="sub show-s">${esc(status)}</div>` : ''}</td>
         <td class="hide-s sub">${esc(status) || '—'}</td>
         <td class="hide-s">${periodHTML(v, a) || '<span class="sub">—</span>'}</td>
@@ -845,7 +864,7 @@
       ['Flag', flagOf(v.mmsi)], ['Type', typeText(q.ship_type)],
       ['Size', q.length_m ? `${q.length_m} × ${q.beam_m} m` : ''], ['Draught', q.draught_m ? `${q.draught_m} m` : ''],
       ['Call sign', q.callsign], ['IMO / MMSI', [v.imo, v.mmsi].filter(Boolean).join(' / ')],
-      ['Destination', q.destination], ['ETA (AIS)', q.eta],
+      ['Next port', (d => d.raw ? d.next + (d.from ? ' (from ' + d.from + ')' : '') + (d.next !== d.raw ? ' · AIS: ' + d.raw : '') : '')(destination(q.destination))], ['ETA (AIS)', q.eta],
       ['Last seen', q.last_seen_utc ? `${fmtTime(q.last_seen_utc)} SGT (${age(q.last_seen_utc)})` : 'none'],
       ['Ship time', q.longitude != null ? `~${shipTime(q.longitude)}` : ''],
     ].filter(([, x]) => x);
@@ -1008,6 +1027,7 @@
     });
 
     renderRun(run); renderChips(); renderReports(reports); renderTable(); setupGutters();
+    getJSON('assets/locode.json', { codes:{} }).then(d => { locode = d.codes || {}; renderTable(); });
     ['pane0', 'pane1'].forEach((id, i) => { const p = Object.assign({ mode:'fleet', range:'30' }, panes[i] || {}, { ship:'', el:$(id), markers:{} }); if (!MODES[p.mode]) p.mode = 'fleet'; P.push(p); renderPane(p); });
     const issues = checkRoster(vessels);
     if (issues.length) banner(`<b>vessels.csv needs checking (${issues.length}):</b> ${issues.slice(0, 6).map(esc).join(' · ')}${issues.length > 6 ? ' …' : ''}`);

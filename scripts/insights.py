@@ -3,6 +3,7 @@
 The dashboard (index.html) uses the same rules for port calls, so keep both in step.
 """
 import html
+import re
 import math
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,7 @@ from common import NEAR_NM, ROOT, _where, haversine_nm, nearest_port, read_json
 SGT = timezone(timedelta(hours=8))
 MID_FILE = os.path.join(ROOT, "assets", "mid.json")
 AREAS_FILE = os.path.join(ROOT, "config", "risk_areas.json")
+LOCODE_FILE = os.path.join(ROOT, "assets", "locode.json")
 
 # --- port-call rules (same as index.html) ---
 STOP_KN = 0.5          # slower than this counts as stopped
@@ -245,3 +247,42 @@ def category_colours(roster):
         if c and c not in order:
             order.append(c)
     return {c: CAT_COLOURS[i % len(CAT_COLOURS)] for i, c in enumerate(order)}
+
+
+# ---------------------------------------------------------------- destinations
+_LOCODE = None
+_SEP = re.compile(r"\s*(?:-+>|=+>|<-+>|<>|>|/|\bTO\b|\bVIA\b)\s*")
+_CODE = re.compile(r"^([A-Z]{2})\s?([A-Z0-9]{3})$")
+
+
+def destination(raw):
+    """Readable AIS destination. Crews often type UN/LOCODEs, e.g. 'FRLEH-->CNYSA'.
+    Returns (next_port, route_from, raw): ('Yangshan, China', 'Le Havre, France', 'FRLEH-->CNYSA').
+    Parts that aren't port codes are kept as typed."""
+    global _LOCODE
+    raw = (raw or "").strip()
+    if not raw:
+        return "", "", ""
+    if _LOCODE is None:
+        _LOCODE = read_json(LOCODE_FILE, {}).get("codes", {})
+    parts = [x for x in _SEP.split(raw.upper()) if x and x.strip()]
+    def name(part):
+        m = _CODE.match(part.strip())
+        if m and (m.group(1) + m.group(2)) in _LOCODE:
+            return _LOCODE[m.group(1) + m.group(2)]
+        word = part.strip()
+        return word.title() if len(word) > 3 and word.replace(" ", "").isalpha() else word
+    named = [name(x) for x in parts] or [raw]
+    nxt = named[-1]
+    frm = named[-2] if len(named) > 1 else ""
+    if nxt.upper() == raw.upper():
+        nxt = raw
+    return nxt, frm, raw
+
+
+def destination_text(raw):
+    """'Yangshan, China (from Le Havre, France)' or the raw text when nothing could be decoded."""
+    nxt, frm, raw = destination(raw)
+    if not raw:
+        return ""
+    return f"{nxt} (from {frm})" if frm else nxt
