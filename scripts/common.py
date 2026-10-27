@@ -109,6 +109,19 @@ def period_info(stints, today):
     return info
 
 
+def completion_date(stints):
+    """Date the 182 days on board are completed (the day after the 182nd day on board, matching the
+    expected finish date), or None if not reached by the end of the recorded stints."""
+    left = REQUIRED_DAYS
+    for st in sorted((x for x in stints if x["start"]), key=lambda x: x["start"]):
+        stop = st["end"]
+        span = (stop - st["start"]).days + 1 if stop else None
+        if span is None or span >= left:
+            return st["start"] + timedelta(days=left)
+        left -= span
+    return None
+
+
 def load_roster(include_standby=False, today=None):
     """One entry per ID from vessels.csv (rows sharing an ID are stints: sign-off and sign-on again,
     possibly on another vessel). Vessel details come from the current stint (the latest one that has

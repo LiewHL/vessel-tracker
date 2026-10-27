@@ -28,7 +28,7 @@ from insights import (  # noqa: E402
     active_in, category_colours, countries_visited, port_calls, timeline_svg, upcoming_changes,
 )
 from common import (  # noqa: E402
-    DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, REQUIRED_DAYS, period_info, freshness, haversine_nm, load_roster,
+    DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, REQUIRED_DAYS, completion_date, period_info, freshness, haversine_nm, load_roster,
     now_utc, parse_iso, place_label, places_visited, read_json, read_positions,
     write_json,
 )
@@ -184,7 +184,10 @@ def build(kind="weekly", ref=None, month=None):
     soon_end, soon_start = upcoming_changes(roster, today, 14)
     alerts = [a for a in read_json(ALERT_LOG, []) if start <= (parse_iso(a.get("t")) or start) <= as_of]
     standby = [v for v in load_roster(include_standby=True) if v["standby"]]
-    ctx = {"roster": roster, "standby": standby, "today": today, "start": start, "soon_end": soon_end, "soon_start": soon_start,
+    p_start, p_end = start.astimezone(SGT).date(), (as_of.astimezone(SGT) - timedelta(seconds=1)).date()
+    completed = sorted(((d, v) for v in roster for d in (completion_date(v.get("stints", [])),)
+                        if d and p_start <= d <= p_end), key=lambda x: x[0])
+    ctx = {"roster": roster, "standby": standby, "completed": completed, "today": today, "start": start, "soon_end": soon_end, "soon_start": soon_start,
            "alerts": alerts}
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -225,6 +228,9 @@ def build(kind="weekly", ref=None, month=None):
     if follow_up:
         lines += ["", "Ships to follow up (no recent position): "
                   + ", ".join(f"{v['id']} ({v['vessel_name']})" for v in follow_up)]
+    if kind == "quarterly":
+        lines += ["", f"Completed 182 days on board this quarter: {len(completed)}"]
+        lines += [f"- {v['id']} {v['vessel_name']} ({d:%d %b %Y})" for d, v in completed]
     if soon_end or soon_start:
         lines += ["", "Coming up in the next 14 days:"]
         lines += [f"- {v['id']} {v['vessel_name']}: period ends {d:%d %b %Y}" for d, v in soon_end]
@@ -318,11 +324,21 @@ def calls_table(rows, w, colours=None, open_cat=""):
             'and departure later. "Stopped for" gives the range the logged positions allow.</p>')
 
 
-def coming_up(ctx):
+def coming_up(ctx, kind="weekly"):
     e = html.escape
+    done = ""
+    if kind == "quarterly":
+        comp = ctx.get("completed", [])
+        names = "".join(f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}: completed 182 days on board on {d:%d %b %Y}</li>"
+                        for d, v in comp)
+        done = (f'<p><b>{len(comp)}</b> completed their 182 days on board this quarter.</p>'
+                + (f"<ul>{names}</ul>" if names else ""))
     items = [f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}: period <b>ends</b> {d:%a %d %b %Y}</li>" for d, v in ctx["soon_end"]]
     items += [f"<li><b>{e(v['id'])}</b> {e(v['vessel_name'])}: period <b>starts</b> {d:%a %d %b %Y}</li>" for d, v in ctx["soon_start"]]
     body = f"<ul>{''.join(items)}</ul>" if items else '<p class="sub">No periods start or end in the next 14 days.</p>'
+    if done:
+        return (f'<section><h2>Completed and coming up</h2>{done}'
+                f'<p class="sub" style="margin:12px 0 4px">Next 14 days from {ctx["today"]:%d %b}:</p>{body}</section>')
     return f'<section><h2>Coming up (next 14 days from {ctx["today"]:%d %b})</h2>{body}</section>'
 
 
@@ -510,7 +526,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         timeline = (f'<section class="tl"><h2>Tracking periods</h2>{svg}<p class="sub">Solid = time on board (each stint); '
                     f'dashed = expected time still needed to reach 182 days (26 weeks). Colour = category. '
                     f'The shaded band is this {w}; the red line is today.</p></section>')
-    side_sections = alerts_section(ctx, w) + coming_up(ctx)
+    side_sections = alerts_section(ctx, w) + coming_up(ctx, kind)
     lower_sections = []          # shown side by side on wide screens
     if kind != "quarterly":     # the one-pager shows port-call counts in the places table instead
         lower_sections.append(f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w, colours, open_cat)}</section>')
