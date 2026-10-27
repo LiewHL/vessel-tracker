@@ -515,8 +515,10 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     if kind != "quarterly":     # the one-pager shows port-call counts in the places table instead
         lower_sections.append(f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w, colours, open_cat)}</section>')
     lower_sections.append(f'<section><h2>Countries and ports visited this {w}</h2>{places_table(rows, w, colours, open_cat)}</section>')
-    if kind == "quarterly":     # one-pager: no long per-ship detail table
+    if kind == "quarterly":     # one-pager: no long per-ship detail table; fill the column beside the map
         groups_html = ""
+        side_sections += timeline + "".join(lower_sections)
+        timeline, lower_sections = "", []
     kpi_html = "".join(f'<div class="kpi"><b style="color:var(--{c})">{n}</b><span>{e(l)}</span></div>' for n, l, c in kpis)
 
     return f"""<!doctype html>
