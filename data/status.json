@@ -1,7 +1,18 @@
 {
-  "last_run_utc": "2026-10-28T01:15:55Z",
-  "last_status": "ok: no ships heard this run",
+  "last_run_utc": "2026-10-28T02:15:49Z",
+  "last_status": "ok",
   "history": [
+    {
+      "run_utc": "2026-10-28T02:15:49Z",
+      "status": "ok",
+      "trigger": "cron",
+      "start_delay_min": 0.8,
+      "listen_minutes": 15.0,
+      "vessels_tracked": 6,
+      "vessels_heard": 1,
+      "messages": 27,
+      "reconnects": 0
+    },
     {
       "run_utc": "2026-10-28T01:15:55Z",
       "status": "ok: no ships heard this run",
