@@ -200,6 +200,12 @@ def build(kind="weekly", ref=None, month=None):
     ctx = {"roster": roster, "standby": standby, "completed": completed, "today": today, "start": start, "soon_end": soon_end, "soon_start": soon_start,
            "alerts": alerts}
 
+    # Tables for the report's Export button (no Excel is emailed): positions, countries, port calls;
+    # the monthly report also carries the full position history.
+    from export_csv import build_sheets
+    _label, sheets = build_sheets(kind, month, ref, full_history=(kind == "monthly"))
+    ctx["sheets"] = [s for s in sheets if s[0] != "Ship summary"]
+
     os.makedirs(REPORTS_DIR, exist_ok=True)
     fname = f"{kind}-{tag}{'-' + staff if staff else ''}.html"
     with open(os.path.join(REPORTS_DIR, fname), "w", encoding="utf-8") as f:
@@ -664,7 +670,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
 <body><main>
   <h1>{e(title)}</h1>
   <div class="meta">Period {e(period)} · Generated {e(fmt_sgt(generated))} SGT{(' · ' + status_note) if status_note else ''}</div>
-  {idtools.block(export_rows, idtools.export_name(f"{kind}-report-{as_of.astimezone(SGT):%Y-%m-%d}"))}
+  {idtools.block(export_rows, idtools.export_name(f"{kind}-report-{as_of.astimezone(SGT):%Y-%m-%d}"), ctx.get("sheets", []))}
   <div class="kpis">{kpi_html}</div>
   {follow}
   <div class="cols">

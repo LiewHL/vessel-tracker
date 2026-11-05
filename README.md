@@ -4,7 +4,7 @@ A hands-off tracker for a list of ships. It runs entirely on GitHub's servers, s
 
 - **Dashboard:** a web page with a map of each ship's last known position, a list with "last seen" status, and a ↗ link to each ship's live position on VesselFinder.
 - **Position log:** every hour (started by cron-job.org, with GitHub's timer as a backup), a script listens to AISStream for 15 minutes and saves the position of every ship it hears.
-- **Weekly report:** every Monday at about 08:15 SGT, a printable report is created and emailed (with one Excel workbook: ship summary, positions, port calls, full history) to the private recipient list. **The email is the only copy** (see Private report emails).
+- **Weekly report:** every Monday at about 08:15 SGT, a printable report is created and emailed to the private recipient list (no Excel attached: press **Export** in the report for an Excel copy of its tables). **The email is the only copy** (see Private report emails).
 - **Monthly report:** on the 1st of each month at about 07:15 SGT, a report for the previous month (tracks, days heard, positions logged, distance) is created and emailed (email only, no copy kept).
 - **Passcode lock:** positions, run records and the sent log are stored encrypted. The dashboard asks for the passcode before showing anything.
 
@@ -141,7 +141,7 @@ corners; set `"active": false` to pause one, and update `"updated"` (shown in al
 
 **Reports:** all reports now include alerts, "coming up in the next 14 days" (periods starting/ending) and port calls.
 Monthly and quarterly also include the timeline and countries/ports visited. A **quarterly one-page summary** is
-emailed on 1 Jan/Apr/Jul/Oct at about 06:15 SGT. Port calls are also a sheet in the emailed Excel workbook.
+emailed on 1 Jan/Apr/Jul/Oct at about 06:15 SGT. Port calls are also a sheet in the Excel from the report's **Export** button.
 
 ## Countries visited
 
@@ -275,8 +275,10 @@ GitHub, or sent by email. Keep it in your SP OneDrive, with these headings in ro
 - Open an emailed report and press **Load**, then pick that Excel (.xlsx) or .csv file. Codes then show as
   "MR05 · ST.ID · ST.N" and an **SF.I** column appears. A note lists codes missing from your list and codes
   listed twice.
-- **Export** (appears after Load) saves an Excel with one row per code: Code, ST.ID, ST.N, SF.I, category,
-  vessel, period, status, last position, countries and ACI. Keep it in SP OneDrive.
+- **Export** (always there) saves the report's tables as one Excel: Summary (one row per code), positions in the
+  period, port calls and countries visited; the monthly report also has the full position history; the Countries
+  report has ASEAN/China/India. After Load, ST.ID / ST.N / SF.I columns are added. Keep it in SP OneDrive.
+- Emails carry no Excel attachment.
 - **Hide** switches back to codes. Printouts made while the list shows are marked "Confidential".
 - Everything happens in your browser: nothing is uploaded, saved or sent, and closing the tab clears it.
   Works offline.

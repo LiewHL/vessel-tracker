@@ -29,7 +29,8 @@ def main():
     body = (f"{summary}\n\nDashboard (passcode needed): {dash_url}\n"
             "No copy of this report is kept on the dashboard or elsewhere, so please save this email "
             "(or the attachments) if you need them later.\n\n"
-            "Attached: the full report (open in a browser; Print > Save as PDF for a PDF copy)"
+            "Attached: the full report (open in a browser; Print > Save as PDF for a PDF copy; "
+            "press Export in the report for an Excel copy of its tables)"
             + (" and the data workbook for Excel (" + ", ".join(os.path.basename(p) for p in extras)
                + ")" if extras else "")
             + ".\n")

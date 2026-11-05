@@ -1,4 +1,4 @@
-"""The Excel workbook sent with the report emails (one .xlsx, one sheet per table).
+"""The report's data tables (used by the report's Export button; can also write an .xlsx here).
 
   python scripts/export_csv.py weekly  <out_dir>
   python scripts/export_csv.py monthly <out_dir> [YYYY-MM]
@@ -63,7 +63,9 @@ def position_rows(fixes_by_id, roster, start=None, end=None):
     by_id = {v["id"]: v for v in roster}
     rows = []
     for vid, fixes in fixes_by_id.items():
-        v = by_id.get(vid, {})
+        if vid not in by_id:          # only the codes in this report (e.g. one staff member's)
+            continue
+        v = by_id[vid]
         for f in fixes:
             if (start and f["t"] < start) or (end and f["t"] > end):
                 continue
@@ -84,7 +86,14 @@ def main():
     kind, out_dir = sys.argv[1], sys.argv[2]
     month = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
     os.makedirs(out_dir, exist_ok=True)
-    ref = now_utc()
+    label, sheets = build_sheets(kind, month)
+    print(write_xlsx(os.path.join(out_dir, f"vessel_data_{label}.xlsx"), sheets))
+
+
+def build_sheets(kind, month=None, ref=None, full_history=True):
+    """[(sheet name, header, rows)]: Ship summary, Positions (period), Countries visited, Port calls
+    and (if full_history) the full position history."""
+    ref = ref or now_utc()
     start, end, _period, tag, ndays = period_bounds(kind, ref, month)
     as_of = min(end, ref)
     roster = load_roster()
@@ -134,8 +143,9 @@ def main():
         "Logged under way again (SGT)", "Stopped at least (h)", "Stopped at most (h)", "Latitude", "Longitude",
     ], calls))
 
-    sheets.append((f"Full history to {ref.astimezone(SGT):%d %b %Y}", POS_HEADER, position_rows(fixes, roster)))
-    print(write_xlsx(os.path.join(out_dir, f"vessel_data_{label}.xlsx"), sheets))
+    if full_history:
+        sheets.append((f"Full history to {ref.astimezone(SGT):%d %b %Y}", POS_HEADER, position_rows(fixes, roster)))
+    return label, sheets
 
 
 if __name__ == "__main__":

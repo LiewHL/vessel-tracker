@@ -2,8 +2,11 @@
 
 The report only contains codes (e.g. MR05). A reader can press **Load** and pick their own Excel
 (.xlsx) or .csv list with the headings Code, ST.ID, ST.N and SF.I in row 1. The browser then shows
-"MR05 · <ST.ID> · <ST.N>" wherever a code appears, adds an "SF.I" column, and offers **Export**:
-one row per code, as an Excel file saved on their computer.
+"MR05 · <ST.ID> · <ST.N>" wherever a code appears and adds an "SF.I" column.
+
+**Export** (always available) saves the report's tables as one Excel file on the reader's computer:
+a summary (one row per code) plus the sheets passed in (positions, port calls, countries ...).
+After Load, ST.ID / ST.N / SF.I columns are added next to the code. The emails carry no Excel.
 
 Everything happens in the reader's browser: nothing is uploaded, stored or sent, and closing the tab
 clears it. No outside library is used (the .xlsx reader/writer is built in), so it also works offline.
@@ -28,7 +31,7 @@ CSS = """
 
 JS = r"""
 (function () {
-  const ROWS = __ROWS__, NAME = __NAME__;
+  const ROWS = __ROWS__, SHEETS = __SHEETS__, NAME = __NAME__;
   const $ = id => document.getElementById(id);
   const bar = $('ldbar'), inp = $('ld-file'), note = $('ld-note');
   const bLoad = $('ld-load'), bHide = $('ld-hide'), bExp = $('ld-export');
@@ -165,7 +168,7 @@ JS = r"""
     addStaff(); swapText(document.body);
     obs = new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (on && !skip(n)) swapText(n); })));
     obs.observe(document.body, { childList:true, subtree:true });
-    bHide.hidden = false; bExp.hidden = false;
+    bHide.hidden = false;
   }
   function hide() {
     on = false; if (obs) obs.disconnect();
@@ -196,30 +199,50 @@ JS = r"""
     end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
     return new Blob([...parts, ...cd, new Uint8Array(end.buffer)], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
-  function xlsx(rows) {
+  // sheets: [[name, rows]] (row 0 = headings) -> one .xlsx with a sheet each
+  function xlsx(sheets) {
     const x = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
     const col = i => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
-    const width = rows[0].map((_, i) => Math.min(60, Math.max(8, ...rows.map(r => String(r[i] ?? '').length + 2))));
-    const sheetRows = rows.map((r, ri) => `<row r="${ri + 1}">` + r.map((v, ci) => {
-      const ref = col(ci) + (ri + 1), s = ri === 0 ? ' s="1"' : '';
-      return typeof v === 'number' ? `<c r="${ref}"${s}><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"${s}><is><t xml:space="preserve">${x(v ?? '')}</t></is></c>`;
-    }).join('') + '</row>').join('');
     const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const names = [];
+    const sheetXml = sheets.map(([name, rows]) => {
+      let nm = String(name).replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 31) || 'Sheet', k = 2;
+      while (names.includes(nm)) nm = nm.slice(0, 28) + ' ' + k++;
+      names.push(nm);
+      const ncol = Math.max(1, ...rows.map(r => r.length));
+      const width = Array.from({ length:ncol }, (_, i) => Math.min(60, Math.max(8, ...rows.slice(0, 400).map(r => String(r[i] ?? '').length + 2))));
+      const data = rows.map((r, ri) => `<row r="${ri + 1}">` + r.map((v, ci) => {
+        const ref = col(ci) + (ri + 1), st = ri === 0 ? ' s="1"' : '';
+        return typeof v === 'number' && isFinite(v) ? `<c r="${ref}"${st}><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"${st}><is><t xml:space="preserve">${x(v ?? '')}</t></is></c>`;
+      }).join('') + '</row>').join('');
+      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${NS}" xmlns:r="${R}"><sheetViews><sheetView workbookViewId="0"${names.length === 1 ? ' tabSelected="1"' : ''}><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${width.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${data}</sheetData>${rows.length > 1 ? `<autoFilter ref="A1:${col(ncol - 1)}${rows.length}"/>` : ''}</worksheet>`;
+    });
+    const n = sheetXml.length;
     return zip([
-      ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
-      ['_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
-      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="${NS}" xmlns:r="${R}"><sheets><sheet name="List" sheetId="1" r:id="rId1"/></sheets></workbook>`],
-      ['xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+      ['[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        + sheetXml.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')
+        + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+      ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="${NS}" xmlns:r="${R}"><sheets>${names.map((nm, i) => `<sheet name="${x(nm)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+      ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${n + 1}" Type="${REL}/styles" Target="styles.xml"/></Relationships>`],
       ['xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="${NS}"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
-      ['xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${NS}" xmlns:r="${R}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${width.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${sheetRows}</sheetData><autoFilter ref="A1:${col(rows[0].length - 1)}${rows.length}"/></worksheet>`],
-    ]);
+    ].concat(sheetXml.map((xmlText, i) => [`xl/worksheets/sheet${i + 1}.xml`, xmlText])));
+  }
+  // Export works with or without Load; after Load, ST.ID / ST.N / SF.I columns follow the code column.
+  function withList(head, rows) {
+    if (!list) return [head].concat(rows);
+    const ci = head.findIndex(h => /^(ID|Code)$/i.test(String(h)));
+    if (ci < 0) return [head].concat(rows);
+    const ins = (arr, vals) => arr.slice(0, ci + 1).concat(vals, arr.slice(ci + 1));
+    return [ins(head, ['ST.ID', 'ST.N', 'SF.I'])].concat(rows.map(r => { const v = list.map[r[ci]] || {}; return ins(r, [v.id || '', v.name || '', v.staff || '']); }));
   }
   function exportXlsx() {
-    const keys = Object.keys(ROWS[0] || { Code:'' }).filter(k => k !== 'Code');
-    const head = ['Code', 'ST.ID', 'ST.N', 'SF.I'].concat(keys);
-    const body = ROWS.map(r => { const x = list.map[r.Code] || {}; return [r.Code, x.id || '', x.name || '', x.staff || ''].concat(keys.map(k => r[k])); });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(xlsx([head].concat(body)));
-    a.download = NAME; document.body.appendChild(a); a.click(); a.remove();
+    const keys = Object.keys(ROWS[0] || { Code:'' });
+    const sheets = [['Summary', withList(keys, ROWS.map(r => keys.map(k => r[k])))]]
+      .concat(SHEETS.map(([name, head, rows]) => [name, withList(head, rows)]));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(xlsx(sheets));
+    a.download = list ? NAME.replace(/\.xlsx$/, '-list.xlsx') : NAME; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
 
@@ -239,25 +262,28 @@ JS = r"""
       note.className = missing.length || l.dup.length ? 'ldwarn' : 'ldnote'; note.textContent = msg.join(' ');
     } catch (e) { note.className = 'ldwarn'; note.textContent = 'Could not read that file: ' + (e.message || e) + '. Use an .xlsx or .csv with headings Code, ST.ID, ST.N, SF.I.'; }
   };
-  bHide.onclick = () => { hide(); list = null; bHide.hidden = true; bExp.hidden = true; note.className = 'ldnote'; note.textContent = ''; };
-  bExp.onclick = () => { if (list) exportXlsx(); };
+  bHide.onclick = () => { hide(); list = null; bHide.hidden = true; note.className = 'ldnote'; note.textContent = ''; };
+  bExp.onclick = () => exportXlsx();
 })();
 """
 
 
-def block(rows, export_name):
-    """HTML for the Load bar (place under the report heading) + its script.
-    rows: one dict per code, first key "Code"; other keys become Export columns."""
-    js = JS.replace("__ROWS__", json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")) \
+def block(rows, export_name, sheets=()):
+    """HTML for the Load / Export bar (place under the report heading) + its script.
+    rows: one dict per code, first key "Code" (the Summary sheet). sheets: more [(name, header, rows)]."""
+    def js_json(x):
+        return json.dumps(x, ensure_ascii=False, default=str).replace("</", "<\\/")
+    js = JS.replace("__ROWS__", js_json(rows)) \
+           .replace("__SHEETS__", js_json([[n, h, r] for n, h, r in sheets])) \
            .replace("__NAME__", json.dumps(export_name))
     return (f'<div class="ldbar" id="ldbar"><button type="button" id="ld-load" title="Read on this computer only; '
             f'nothing is uploaded or saved">Load</button>'
             f'<button type="button" id="ld-hide" hidden>Hide</button>'
-            f'<button type="button" id="ld-export" hidden title="Save as Excel on this computer">Export</button>'
+            f'<button type="button" id="ld-export" title="Save the report tables as Excel on this computer">Export</button>'
             f'<input type="file" id="ld-file" accept=".xlsx,.csv" hidden>'
             f'<span class="ldnote" id="ld-note"></span></div>'
             f'<script>{js}</script>')
 
 
 def export_name(tag):
-    return f"{html.unescape(tag)}-list.xlsx"
+    return f"{html.unescape(tag)}.xlsx"

@@ -120,9 +120,8 @@ jobs:
           REPO="${GITHUB_REPOSITORY#*/}"
           SITE="https://${OWNER,,}.github.io/${REPO}"
           FILE="${{ steps.build.outputs.file }}"
-          mapfile -t FILES < <(python scripts/export_csv.py monthly "$RUNNER_TEMP/csv" "${{ github.event.inputs.month }}")
           set +e
-          python scripts/send_email.py reports/latest-monthly-summary.md "reports/$FILE" "Monthly vessel report: ${{ steps.build.outputs.period }}" "$SITE/" "" "${FILES[@]}"
+          python scripts/send_email.py reports/latest-monthly-summary.md "reports/$FILE" "Monthly vessel report: ${{ steps.build.outputs.period }}" "$SITE/" ""
           rc=$?
           if [ $rc -eq 0 ]; then echo "sent=yes" >> "$GITHUB_OUTPUT"; fi
           if [ $rc -eq 3 ]; then echo "::warning::No email sent (secrets not set, or no allowed recipients). Nothing was kept."; exit 0; fi
@@ -171,9 +170,8 @@ jobs:
             ONLY_STAFF=$S python scripts/weekly_report.py --monthly --month "${{ github.event.inputs.month }}" > "$RUNNER_TEMP/s-$S.json" || continue
             FILE=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['file'])" "$RUNNER_TEMP/s-$S.json")
             PERIOD=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/s-$S.json")
-            mapfile -t FILES < <(ONLY_STAFF=$S python scripts/export_csv.py monthly "$RUNNER_TEMP/csv-$S" "${{ github.event.inputs.month }}")
             MD=$(ls reports/latest-*summary-$S.md | head -1)
-            if python scripts/send_email.py "$MD" "reports/$FILE" "Monthly vessel report: $PERIOD" "$SITE/" "" "${FILES[@]}" --to "$S"; then n=$((n+1)); fi
+            if python scripts/send_email.py "$MD" "reports/$FILE" "Monthly vessel report: $PERIOD" "$SITE/" "" --to "$S"; then n=$((n+1)); fi
             rm -f "reports/$FILE" "$MD"
           done
           echo "Staff copies sent: $n"

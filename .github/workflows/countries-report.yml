@@ -84,16 +84,16 @@ jobs:
         run: |
           set +e
           if [ -n "$PERIOD_END" ]; then
-            python scripts/countries_report.py --period-end "$PERIOD_END" --xlsx "$RUNNER_TEMP/x" > "$RUNNER_TEMP/s.json"
+            python scripts/countries_report.py --period-end "$PERIOD_END" > "$RUNNER_TEMP/s.json"
           else
-            python scripts/countries_report.py --from "$FROM" --to "$TO" --category "$CATEGORY" --xlsx "$RUNNER_TEMP/x" > "$RUNNER_TEMP/s.json"
+            python scripts/countries_report.py --from "$FROM" --to "$TO" --category "$CATEGORY" > "$RUNNER_TEMP/s.json"
           fi
           rc=$?
           set -e
           if [ $rc -eq 10 ]; then echo "::notice::Summary already made; nothing to do."; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           [ $rc -eq 0 ]
           echo "go=true" >> "$GITHUB_OUTPUT"
-          for k in file period xlsx kind date; do
+          for k in file period kind date; do
             echo "$k=$(python -c "import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],''))" "$RUNNER_TEMP/s.json" $k)" >> "$GITHUB_OUTPUT"
           done
       - name: Email the report (private - recipients and login are GitHub secrets)
@@ -113,7 +113,7 @@ jobs:
           SITE="https://${OWNER,,}.github.io/${REPO}"
           if [ "${{ steps.build.outputs.kind }}" = "period_end" ]; then SUBJ="End of period: ${{ steps.build.outputs.period }}"; else SUBJ="Countries visited: ${{ steps.build.outputs.period }}"; fi
           set +e
-          python scripts/send_email.py reports/latest-countries-summary.md "reports/${{ steps.build.outputs.file }}" "$SUBJ" "$SITE/" "" "${{ steps.build.outputs.xlsx }}"
+          python scripts/send_email.py reports/latest-countries-summary.md "reports/${{ steps.build.outputs.file }}" "$SUBJ" "$SITE/" ""
           rc=$?
           if [ $rc -eq 0 ]; then echo "sent=yes" >> "$GITHUB_OUTPUT"; fi
           if [ $rc -eq 3 ]; then echo "::warning::No email sent (secrets not set, or no allowed recipients). Nothing was kept."; exit 0; fi

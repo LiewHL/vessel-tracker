@@ -62,13 +62,13 @@ CSS = """
 """
 
 
-def page(title, meta, kpis, body, ships=(), export_tag="countries"):
+def page(title, meta, kpis, body, ships=(), export_tag="countries", aci_all=None, aci_now=None):
     e = html.escape
     k = "".join(f'<div class="kpi"><b>{e(str(n))}</b><span>{e(l)}</span></div>' for n, l in kpis)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{e(title)}</title>{LEAFLET[0]}<style>{CSS}{idtools.CSS}</style></head>
-<body><main><h1>{e(title)}</h1><div class="meta">{e(meta)}</div>{idtools.block(export_rows(ships), idtools.export_name(export_tag))}<div class="kpis">{k}</div>{body}
+<body><main><h1>{e(title)}</h1><div class="meta">{e(meta)}</div>{idtools.block(export_rows(ships), idtools.export_name(export_tag), export_sheets(ships, aci_all, aci_now))}<div class="kpis">{k}</div>{body}
 <p class="foot">A country counts as visited when the ship berthed or anchored at one of its ports (detected from hourly
 AIS positions). Short calls between two logged positions, or in areas without AIS
 coverage, can be missed, so counts are a minimum. Ports: World Port Index (NGA Pub. 150); outlines: Natural Earth.</p>
@@ -89,6 +89,12 @@ def export_rows(ships):
                     "ASEAN (excl. Singapore)": ", ".join(a["ASEAN"]), "China (incl. HK, Macao)": ", ".join(a["China"]),
                     "India": "Yes" if a["India"] else ""})
     return out
+
+
+def export_sheets(ships, aci_all=None, aci_now=None):
+    """Extra sheets for Export: every port call, and ASEAN / China / India per code."""
+    return [("Countries visited", ctry.XLSX_HEADER, ctry.xlsx_rows(ships)),
+            ("ASEAN China India", *ctry.aci_xlsx(aci_all or list(ships), aci_now))]
 
 
 def gather(roster, fixes, start=None, end=None, category=None):
@@ -173,7 +179,7 @@ def on_demand(a):
     save(fname, page(title, f"{scope} · {span} · Generated {ref.astimezone(SGT):%d %b %Y %H:%M} SGT",
                      [(len(allc), "Countries visited"), (sum(len(s['calls']) for s in ships), "Port calls"),
                       (sum(1 for s in ships if s['calls']), "Ships with port calls"), (len(ships), "Ships")], body,
-                     ships, f"countries-{tag}"), entry, md)
+                     ships, f"countries-{tag}", to_date, ships if start else None), entry, md)
     if a.xlsx:
         entry["xlsx"] = write_xlsx(a.xlsx, f"countries_{tag}.xlsx", ships, to_date, ships if start else None)
     return entry
