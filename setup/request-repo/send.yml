@@ -1,0 +1,90 @@
+# Copy of the job that lives in the small PRIVATE request repo (e.g. vessel-tracker-requests) at
+# .github/workflows/send.yml. The dashboard's Send button starts it with a report type and the
+# person's Send code. It checks the code and, if valid, starts that report in the main repo for
+# that staff number only (S1, S2, ...). No addresses, codes or data are kept in this file.
+#
+# Secrets in the request repo:
+#   SEND_CODES   one line per staff member:  <send code>=S3
+#   MAIN_TOKEN   token limited to the main repo, permission "Actions: read and write"
+# Optional variable MAIN_REPO (default LiewHL/vessel-tracker).
+name: Send report
+run-name: Send ${{ inputs.report }} report
+
+on:
+  workflow_dispatch:
+    inputs:
+      report:
+        description: "weekly / monthly / quarterly / countries"
+        type: choice
+        options: [weekly, monthly, quarterly, countries]
+      code:
+        description: "Send code"
+        required: true
+
+permissions:
+  actions: read
+
+concurrency:
+  group: send
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the Send code and pass the request on
+        env:
+          CODE: ${{ inputs.code }}
+          REPORT: ${{ inputs.report }}
+          SEND_CODES: ${{ secrets.SEND_CODES }}
+          MAIN_TOKEN: ${{ secrets.MAIN_TOKEN }}
+          MAIN_REPO: ${{ vars.MAIN_REPO || 'LiewHL/vessel-tracker' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::add-mask::$CODE"
+          python3 - <<'PY'
+          import hmac, json, os, re, sys, urllib.request
+          from datetime import datetime, timedelta, timezone
+
+          def api(url, token, data=None):
+              req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
+                                           method="POST" if data is not None else "GET",
+                                           headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                                                    "X-GitHub-Api-Version": "2022-11-28"})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  body = r.read()
+                  return json.loads(body) if body else {}
+
+          # 1. More than 10 refused requests today (Singapore time): pause until tomorrow.
+          sgt = timezone(timedelta(hours=8))
+          day0 = datetime.now(sgt).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+          runs = api(f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/send.yml/runs"
+                     f"?created=>={day0:%Y-%m-%dT%H:%M:%SZ}&per_page=100", os.environ["GH_TOKEN"]).get("workflow_runs", [])
+          if sum(1 for r in runs if r.get("conclusion") == "failure") >= 10:
+              print("::error::Too many refused requests today. Send is paused until tomorrow (Singapore time).")
+              sys.exit(1)
+
+          # 2. The Send code decides the staff number; nothing else is accepted.
+          report, code = os.environ["REPORT"], os.environ["CODE"].strip()
+          if report not in ("weekly", "monthly", "quarterly", "countries"):
+              print("::error::Unknown report type."); sys.exit(1)
+          slot = ""
+          for line in re.split(r"[\n;]", os.environ.get("SEND_CODES", "")):
+              k, _, v = line.strip().rpartition("=")
+              if k and hmac.compare_digest(k.strip().encode(), code.encode()):
+                  slot = v.strip().upper()
+          if not code or not re.fullmatch(r"S\d{1,3}", slot):
+              print("::error::Send code not accepted."); sys.exit(1)
+
+          # 3. Start the report in the main repo for that staff number (its address stays in the main repo's secrets).
+          inputs = {"email": "yes", "send_to": slot}
+          if report != "countries":
+              inputs["source"] = "manual"
+          try:
+              api(f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['MAIN_REPO']}/actions/workflows/{report}-report.yml/dispatches",
+                  os.environ["MAIN_TOKEN"], {"ref": "main", "inputs": inputs})
+          except Exception as e:
+              print(f"::error::Could not start the report ({getattr(e, 'code', type(e).__name__)})."); sys.exit(1)
+          print(f"Started the {report} report for {slot}.")
+          PY

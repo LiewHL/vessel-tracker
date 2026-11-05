@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.tmp
+
+# Readable copies of the locked data. They exist only inside a run (or on your own computer)
+# and must never be published; the encrypted versions live in vault/.
+data/positions.csv
+data/latest.json
+data/run_log.json
+data/alerts_state.json
+data/alerts_log.json
+data/send.json
+vessels.csv
+reports/*.html
+reports/*.md
+reports/index.json

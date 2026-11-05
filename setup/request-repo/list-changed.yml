@@ -1,0 +1,26 @@
+# When vessels.csv is changed here, ask the main repo to check it (wrong MMSI/IMO, bad dates,
+# duplicate codes). The result is emailed to the main list. Uses the MAIN_TOKEN secret.
+name: Vessel list changed
+
+on:
+  push:
+    paths:
+      - vessels.csv
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ask the main repo to check the list
+        env:
+          MAIN_TOKEN: ${{ secrets.MAIN_TOKEN }}
+          MAIN_REPO: ${{ vars.MAIN_REPO || 'LiewHL/vessel-tracker' }}
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $MAIN_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$MAIN_REPO/actions/workflows/check-vessels.yml/dispatches" -d '{"ref":"main"}')
+          echo "Check started (HTTP $code)"
+          [ "$code" = "204" ]

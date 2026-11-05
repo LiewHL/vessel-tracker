@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vessel Tracking</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root {
+    --bg:#f3f6f8; --card:#ffffff; --ink:#132430; --muted:#5d6e7b; --line:#dbe3e9;
+    --accent:#0b5c8c; --accent-soft:#e3f0f8; --sel:#e8f2f9;
+    --fresh:#1f8a4c; --stale:#c98a00; --old:#c0392b; --none:#8b97a1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d171e; --card:#15232d; --ink:#e4edf2; --muted:#93a5b2; --line:#24363f;
+      --accent:#5fb3e6; --accent-soft:#16364a; --sel:#18303d;
+      --fresh:#3cc070; --stale:#e3a91a; --old:#ec6b5c; --none:#7d8b95;
+    }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); display:flex; flex-direction:column;
+         font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--accent); }
+  button, select, input { font:inherit; color:inherit; }
+
+  /* ---------- header ---------- */
+  header { background:var(--card); border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; align-items:center;
+           gap:6px 14px; padding:8px 14px; position:relative; z-index:1000; }
+  h1 { font-size:16px; margin:0; white-space:nowrap; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip-k { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--bg); border-radius:999px;
+            padding:3px 10px; cursor:pointer; white-space:nowrap; }
+  .chip-k b { font-variant-numeric:tabular-nums; }
+  .chip-k[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .spacer { flex:1 1 0; }
+  .runinfo { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pill { display:inline-flex; align-items:center; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700;
+          background:var(--accent-soft); color:var(--accent); white-space:nowrap; }
+  .pill.bad { background:color-mix(in srgb, var(--old) 15%, transparent); color:var(--old); }
+  .pill.warn { background:color-mix(in srgb, var(--stale) 18%, transparent); color:var(--ink); }
+  .hbtn { border:1px solid var(--line); background:var(--card); color:var(--accent); font-weight:600; border-radius:8px;
+          padding:4px 10px; cursor:pointer; }
+  .hbtn:hover { background:var(--accent-soft); }
+  .popover { position:absolute; right:14px; top:100%; margin-top:4px; width:min(560px, calc(100vw - 28px)); max-height:70vh; overflow:auto;
+             background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); display:none; }
+  .popover.open { display:block; }
+  .popover h2 { font-size:14px; margin:0; padding:10px 14px; border-bottom:1px solid var(--line); }
+  .reports { list-style:none; margin:0; padding:0; }
+  .reports li { display:flex; flex-wrap:wrap; gap:4px 12px; justify-content:space-between; padding:9px 14px; border-bottom:1px solid var(--line); }
+  .tag { display:inline-block; font-size:10px; font-weight:700; border-radius:5px; padding:1px 6px; margin-right:6px; }
+  .tag.m { background:var(--accent); color:var(--card); } .tag.w { background:var(--accent-soft); color:var(--accent); }
+  .foot { padding:10px 14px; color:var(--muted); font-size:12px; }
+  .sendrow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 14px 4px; }
+  .sendrow select, .sendrow input { font:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--line); border-radius:7px;
+                                    background:var(--card); color:var(--ink); min-width:0; }
+  .sendrow input { flex:1 1 140px; }
+  #sendMsg.ok { color:var(--fresh); } #sendMsg.bad { color:var(--old); }
+  .banner { background:color-mix(in srgb, var(--stale) 14%, var(--card)); border-bottom:1px solid color-mix(in srgb, var(--stale) 40%, transparent);
+            padding:7px 14px; display:none; font-size:12px; }
+
+  /* ---------- workspace ---------- */
+  .ws { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:var(--left, 56%) 6px minmax(0, 1fr); }
+  .left { display:grid; grid-template-rows:var(--top, 55%) 6px minmax(0, 1fr); min-height:0; min-width:0; }
+  .gutter { background:var(--line); position:relative; }
+  .gutter:hover, .gutter.drag { background:var(--accent); }
+  .gutter.v { cursor:col-resize; } .gutter.h { cursor:row-resize; }
+  .gutter::after { content:""; position:absolute; inset:-4px; }
+  .pane { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); }
+  .ptool { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
+  .ptool select, .ptool input[type=date] { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; max-width:100%; }
+  .ptool .mode { font-weight:600; }
+  .pbody { flex:1 1 auto; min-height:0; position:relative; }
+  .pbody > .lmap, .pbody > iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button { border:0; background:var(--card); color:var(--muted); padding:4px 9px; cursor:pointer; font-size:12px; font-weight:600; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:var(--accent); color:var(--card); }
+  .overlay { position:absolute; z-index:500; background:color-mix(in srgb, var(--card) 92%, transparent); border:1px solid var(--line);
+             border-radius:8px; padding:6px 9px; font-size:12px; }
+  .tinfo { display:flex; flex-wrap:wrap; align-items:center; gap:2px 10px; color:var(--muted); font-size:12px; margin-left:auto; min-width:0; }
+  .tinfo span { display:inline-flex; align-items:center; white-space:nowrap; }
+  .catchip { font:inherit; font-size:12px; display:inline-flex; align-items:center; gap:0; padding:2px 8px; border:1px solid var(--line); border-radius:999px; background:var(--card); color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .catchip:hover { border-color:var(--accent); }
+  .catchip[aria-pressed="false"] { color:var(--muted); background:transparent; border-style:dashed; }
+  .catchip[aria-pressed="false"] .dot { background:transparent !important; box-shadow:inset 0 0 0 1.5px var(--none); }
+  .catchip[aria-pressed="false"] .cn { text-decoration:line-through; }
+  .tinfo .places { color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; display:block; }
+  .plist { position:absolute; z-index:600; top:6px; right:6px; width:min(440px, calc(100% - 12px)); max-height:calc(100% - 12px); overflow:auto; padding:0; }
+  .plist table { width:100%; border-collapse:collapse; }
+  .plist td, .plist th { text-align:left; padding:4px 8px; border-top:1px solid var(--line); white-space:nowrap; }
+  .plist td:last-child { white-space:normal; }
+  .plist th { color:var(--muted); font-weight:600; border-top:0; position:sticky; top:0; background:var(--card); }
+  .pchip { display:inline-block; background:var(--accent-soft); color:var(--accent); border-radius:999px; padding:1px 8px; margin:2px 2px 0 0; font-weight:600; }
+  .shipcard { width:min(400px, calc(100% - 12px)); padding:12px 14px; }
+  .shipcard h3 { margin:0; font-size:14px; } .shipcard h4 { margin:12px 0 4px; font-size:12px; color:var(--muted); }
+  .shipcard .per { max-width:none; margin:6px 0 4px; }
+  table.kv { width:100%; border-collapse:collapse; margin-top:8px; }
+  table.kv th { text-align:left; font-weight:600; color:var(--muted); padding:3px 10px 3px 0; white-space:nowrap; vertical-align:top; border:0; position:static; }
+  table.kv td { padding:3px 0; border:0; white-space:normal; }
+  .callmk, .arrowmk { background:none; border:0; }
+  .shipkey { cursor:pointer; }
+  .cm { display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:4px; font:700 10px/1 system-ui,sans-serif; color:#fff; border:1.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3); }
+  .cm.b { background:#0b5c8c; } .cm.a { background:#c98a00; } .cm.o { background:#6250d6; }
+  .tlwrap { position:absolute; inset:0; overflow:auto; padding:8px 10px; }
+  svg.tl text { font:11px system-ui,sans-serif; fill:var(--ink); } svg.tl .ax { fill:var(--muted); }
+  svg.tl .grid { stroke:var(--line); } svg.tl .today { stroke:var(--old); stroke-width:1.5; } svg.tl .todayt { fill:var(--old); }
+  svg.tl g.bar { cursor:pointer; } svg.tl g.bar:hover rect, svg.tl g.bar:focus rect { opacity:.8; } svg.tl g.bar:focus { outline:none; }
+  .msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--muted); }
+
+  /* ---------- table ---------- */
+  .right { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); container-type:inline-size; }
+  .show-s { display:none; }
+  @container (max-width: 620px) { .hide-s { display:none; } .show-s { display:block; } }
+  .per { font-size:11px; color:var(--muted); margin-top:3px; max-width:230px; }
+  .per .pd { white-space:nowrap; }
+  .per .pt { display:flex; flex-wrap:wrap; justify-content:space-between; gap:0 8px; }
+  .per .pt b { white-space:nowrap; }
+  .per .bar { height:4px; border-radius:2px; background:var(--line); margin-top:3px; overflow:hidden; }
+  .per .bar i { display:block; height:100%; background:var(--accent); border-radius:2px; }
+  .per.done .bar i { background:var(--fresh); }
+  .per.paused .bar i { background:var(--none); }
+  .ttool { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
+  .ttool input[type=search] { flex:1 1 160px; min-width:0; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 8px; }
+  .ttool select { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; }
+  .count { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .tscroll { flex:1 1 auto; min-height:0; overflow:auto; }
+  table.ships { width:100%; border-collapse:collapse; }
+  table.ships th { position:sticky; top:0; z-index:2; background:var(--card); text-align:left; font-size:11px; color:var(--muted);
+                   font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; cursor:pointer; user-select:none; }
+  table.ships td { padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  table.ships tbody tr { cursor:pointer; }
+  table.ships tbody tr:hover { background:color-mix(in srgb, var(--sel) 60%, transparent); }
+  table.ships tbody tr.grp, table.ships tbody tr.sbrow { cursor:default; }
+  table.ships tbody tr.sbrow td { padding-top:4px; padding-bottom:4px; color:var(--muted); }
+  table.ships tbody tr.sbrow:hover { background:none; }
+  table.ships tbody tr.grp:hover { background:none; }
+  table.ships tbody tr.grp td { background:var(--bg); padding:0; border-bottom:1px solid var(--line); }
+  .gbtn { all:unset; box-sizing:border-box; cursor:pointer; display:flex; gap:7px; align-items:center; width:100%; padding:8px; font-size:12px; }
+  .gbtn:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  .gbtn .caret { color:var(--muted); display:inline-block; transition:transform .15s; }
+  .gbtn[aria-expanded="true"] .caret { transform:rotate(90deg); }
+  .gbtn .dot { margin-right:0; }
+  table.ships tbody tr.sel { background:var(--sel); box-shadow:inset 3px 0 0 var(--accent); }
+  .idc { font-weight:700; white-space:nowrap; }
+  .vn { font-weight:600; }
+  .sub { color:var(--muted); font-size:11px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; flex:none; }
+  .fresh{background:var(--fresh)} .stale{background:var(--stale)} .old{background:var(--old)} .none{background:var(--none)}
+  .nowrap { white-space:nowrap; }
+  .mono { font-variant-numeric:tabular-nums; }
+  .vf { text-decoration:none; font-weight:600; white-space:nowrap; }
+  .hide-s { }
+
+  /* ---------- passcode lock ---------- */
+  .lock { position:fixed; inset:0; z-index:5000; display:none; align-items:center; justify-content:center; padding:16px; background:var(--bg); }
+  .lock.open { display:flex; }
+  .lock form { width:100%; max-width:360px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; box-shadow:0 8px 30px rgba(0,0,0,.08); }
+  .lock h2 { margin:0 0 4px; font-size:18px; }
+  .lock p { margin:0 0 16px; color:var(--muted); font-size:13px; line-height:1.45; }
+  .lock input[type=password] { width:100%; box-sizing:border-box; font:inherit; font-size:15px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); }
+  .lock input[type=password]:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .lock label { display:flex; gap:8px; align-items:center; margin:12px 0 16px; font-size:13px; color:var(--muted); }
+  .lock button { width:100%; font:inherit; font-weight:600; padding:10px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .lock button:disabled { opacity:.6; cursor:wait; }
+  .lock .err { color:var(--old); font-size:13px; min-height:18px; margin-top:10px; }
+
+  /* ---------- narrow screens: stack ---------- */
+  @media (max-width: 900px) {
+    body { height:auto; }
+    .ws { display:block; }
+    .left { display:block; }
+    .gutter { display:none; }
+    .pane { height:max(340px, 58vh); border-bottom:1px solid var(--line); }
+    #pane1 { height:max(300px, 46vh); }
+    .right { min-height:60vh; }
+    .tscroll { overflow:visible; }
+    .hide-s { display:none; }
+    .show-s { display:block; }
+
+    /* one-line header: title, logger pill, Lock, Reports; status chips in one swipeable row */
+    header { gap:6px 8px; padding:8px 10px; }
+    h1 { order:0; }
+    #runPill { order:1; }
+    .spacer { order:2; }
+    #lockBtn { order:3; }
+    #reportsBtn { order:4; }
+    .chips { order:5; flex:1 1 100%; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -10px; padding:0 10px 2px; }
+    .chips::-webkit-scrollbar, .ptool::-webkit-scrollbar { display:none; }
+    .chip-k { padding:3px 9px; }
+    #runText { display:none; }
+    #runPill { cursor:pointer; }
+    #runPill::after { content:" ▾"; font-weight:400; }
+    header.run-open #runText { display:block; order:6; flex:1 1 100%; color:var(--muted); font-size:12px; }
+    header.run-open #runPill::after { content:" ▴"; }
+    .runinfo { display:contents; }
+
+    /* map toolbars stay on one line; swipe sideways if they don't fit */
+    .ptool { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+    .ptool > * { flex:none; }
+    .ptool .tinfo { flex-wrap:nowrap; margin-left:0; }
+    .ptool select.ship { max-width:200px; }
+  }
+  .lk-ic { vertical-align:-2px; }
+  @media (max-width: 420px) {
+    h1 { font-size:15px; }
+    header { gap:6px; }
+    .hbtn { padding:4px 8px; }
+    .lk-tx, .rp-ar { display:none; }
+    .pill { padding:2px 7px; }
+  }
+</style>
+</head>
+<body>
+<div class="lock" id="lock" role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+  <form id="lockForm" autocomplete="on">
+    <h2 id="lockTitle">Vessel Tracking</h2>
+    <p>This dashboard is locked. Enter the passcode to view positions and reports.</p>
+    <input type="text" name="username" value="vessel-tracker" autocomplete="username" hidden>
+    <input type="password" id="lockPass" autocomplete="current-password" placeholder="Passcode" aria-label="Passcode" required>
+    <label><input type="checkbox" id="lockRemember" checked> Remember on this device for 30 days</label>
+    <button type="submit" id="lockGo">Unlock</button>
+    <div class="err" id="lockErr" role="alert"></div>
+  </form>
+</div>
+<header>
+  <h1>Vessel Tracking</h1>
+  <div class="chips" id="chips" role="group" aria-label="Filter by last seen"></div>
+  <div class="spacer"></div>
+  <div class="runinfo"><span id="runPill" class="pill" role="button" tabindex="0" aria-controls="runText" title="Logger status">Loading…</span><span id="runText"></span></div>
+  <button class="hbtn" id="lockBtn" hidden title="Forget the passcode on this device and lock the dashboard" aria-label="Lock"><svg class="lk-ic" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="lk-tx"> Lock</span></button>
+  <button class="hbtn" id="sendBtn" hidden aria-expanded="false" aria-controls="sendPop" title="Email a report to the SP address linked to your Send code">Send</button>
+  <div class="popover" id="sendPop">
+    <h2>Send a report by email</h2>
+    <div class="sendrow"><select id="sendKind" aria-label="Report">
+        <option value="weekly">Weekly (last 7 days)</option><option value="monthly">Monthly (last full month)</option>
+        <option value="quarterly">Quarterly (last full quarter)</option><option value="countries">Countries (whole period)</option></select>
+      <input id="sendCode" type="password" autocomplete="off" placeholder="Your Send code" aria-label="Your Send code">
+      <button class="hbtn" id="sendGo" type="button">Send</button></div>
+    <div class="foot" id="sendMsg">The report goes to the SP email linked to your Send code (at most 5 a day). No copy is kept.</div>
+  </div>
+  <button class="hbtn" id="reportsBtn" aria-expanded="false" aria-controls="reportsPop">Reports<span class="rp-ar"> ▾</span></button>
+  <div class="popover" id="reportsPop">
+    <h2>Reports sent</h2>
+    <ul class="reports" id="reports"></ul>
+
+  </div>
+</header>
+<div class="banner" id="banner"></div>
+
+<main class="ws" id="ws">
+  <div class="left" id="left">
+    <section class="pane" id="pane0" aria-label="Map panel 1"></section>
+    <div class="gutter h" id="gutH" role="separator" aria-orientation="horizontal" aria-label="Resize map panels" tabindex="0"></div>
+    <section class="pane" id="pane1" aria-label="Map panel 2"></section>
+  </div>
+  <div class="gutter v" id="gutV" role="separator" aria-orientation="vertical" aria-label="Resize maps and table" tabindex="0"></div>
+  <section class="right" aria-label="Vessels">
+    <div class="ttool">
+      <input type="search" id="search" placeholder="Search ID, vessel, company" aria-label="Search vessels">
+      <select id="catFilter" aria-label="Filter by category" hidden><option value="">All categories</option></select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tscroll">
+      <table class="ships">
+        <thead><tr>
+          <th data-sort="id">ID</th><th data-sort="vessel_name">Vessel</th><th data-sort="_age">Last seen</th>
+          <th data-sort="_place">Place</th><th class="hide-s" data-sort="_speed">Status</th><th class="hide-s" data-sort="_att">Period</th><th aria-label="Links"></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function () {
+  'use strict';
+  const SGT = 'Asia/Singapore';
+  const LABEL = { fresh:'Last 3 days', stale:'3–7 days', old:'Over 7 days', none:'No position' };
+  const CAT_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'];
+  const CAT_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+  const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
+  const MODES = { fleet:'Fleet map', route:'Vessel route / history', timeline:'Timeline (periods)', countries:'Countries visited' };
+
+  let locode = {};          // UN/LOCODE port codes, loaded after the page is shown
+  let vessels = [], standby = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
+  let filter = 'all', catFilter = '', query = '', sortKey = '', sortDir = 1, selectedId = '';
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('vt-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('vt-' + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  let colourBy = store.get('colourBy', 'status');
+  const panes = store.get('panes', [{ mode:'fleet', ship:'', range:'30' }, { mode:'route', ship:'', range:'30' }]);
+
+  // ---------- helpers ----------
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const isDark = () => window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  // ---------- passcode lock: data is stored encrypted in vault/ (see scripts/vault.py) ----------
+  const VAULT = { on:false, key:null, meta:null };
+  const PLAIN = new Set(['assets/ports.json', 'assets/mid.json', 'assets/locode.json', 'assets/countries.geojson']);
+  const CHECK = 'vessel-tracker-vault-ok', KEY_SLOT = 'vt-vault-key';
+  const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const b64e = u => btoa(String.fromCharCode(...u));
+  async function decRecord(key, rec) {
+    const raw = b64d(rec);
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name:'AES-GCM', iv:raw.slice(0, 12) }, key, raw.slice(12)));
+  }
+  async function deriveRaw(pass, meta) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits']);
+    return new Uint8Array(await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt:b64d(meta.salt), iterations:meta.iter }, base, 256));
+  }
+  const aesKey = raw => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+  async function keyWorks(key) { try { return await decRecord(key, VAULT.meta.check) === CHECK; } catch (e) { return false; } }
+  const REMEMBER_DAYS = 30;     // "Remember on this device" lasts this long, then the passcode is asked again
+  function slotGet() {
+    try { const v = JSON.parse(sessionStorage.getItem(KEY_SLOT)); if (v) return v; } catch (e) {}
+    try {
+      const v = JSON.parse(localStorage.getItem(KEY_SLOT));
+      if (v && v.t && Date.now() - v.t < REMEMBER_DAYS * 864e5) return v;
+      if (v) localStorage.removeItem(KEY_SLOT);       // expired (or saved before expiry existed)
+    } catch (e) {}
+    return null;
+  }
+  function slotSet(v, remember) { try { window[remember ? 'localStorage' : 'sessionStorage'].setItem(KEY_SLOT, JSON.stringify(Object.assign({ t:Date.now() }, v))); } catch (e) {} }
+  function slotClear() { for (const s of ['localStorage', 'sessionStorage']) { try { window[s].removeItem(KEY_SLOT); } catch (e) {} } }
+
+  async function fetchText(path) {
+    const r = await fetch(path + '?t=' + Date.now(), { cache:'no-store' });
+    if (!r.ok) throw new Error(path + ' ' + r.status);
+    return r.text();
+  }
+  async function getText(path) {
+    if (!VAULT.on || PLAIN.has(path)) return fetchText(path);
+    const lines = (await fetchText('vault/' + path + '.enc')).split('\n').map(l => l.trim()).filter(Boolean);
+    return (await Promise.all(lines.map(l => decRecord(VAULT.key, l)))).join('');
+  }
+
+  async function start() {
+    try { const r = await fetch('vault/key.json?t=' + Date.now(), { cache:'no-store' }); if (r.ok) VAULT.meta = await r.json(); } catch (e) {}
+    if (!VAULT.meta) { init(); return; }                     // not locked yet: readable files
+    VAULT.on = true;
+    const lockBtn = $('lockBtn'); lockBtn.hidden = false;
+    lockBtn.onclick = () => { slotClear(); location.reload(); };
+    const saved = slotGet();
+    if (saved && saved.salt === VAULT.meta.salt) {
+      const key = await aesKey(b64d(saved.k)).catch(() => null);
+      if (key && await keyWorks(key)) { VAULT.key = key; init(); return; }
+    }
+    slotClear();
+    const lock = $('lock'), form = $('lockForm'), pass = $('lockPass'), go = $('lockGo'), err = $('lockErr');
+    lock.classList.add('open'); pass.focus();
+    form.onsubmit = async e => {
+      e.preventDefault(); err.textContent = ''; go.disabled = true; go.textContent = 'Unlocking…';
+      try {
+        const raw = await deriveRaw(pass.value.trim(), VAULT.meta), key = await aesKey(raw);
+        if (!await keyWorks(key)) { err.textContent = 'Wrong passcode. Try again.'; pass.select(); return; }
+        slotSet({ salt:VAULT.meta.salt, k:b64e(raw) }, $('lockRemember').checked);
+        VAULT.key = key; pass.value = ''; lock.classList.remove('open'); init();
+      } catch (x) { err.textContent = 'Could not unlock (' + (x.message || x) + ').'; }
+      finally { go.disabled = false; go.textContent = 'Unlock'; }
+    };
+  }
+
+  async function getJSON(path, fb) { try { return JSON.parse(await getText(path)); } catch (e) { return fb; } }
+  function parseCSV(text) {
+    const rows = []; let row = [], cell = '', q = false;
+    text = text.replace(/^﻿/, '');
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) { if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += c;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    const head = (rows.shift() || []).map(h => h.trim());
+    return rows.filter(r => r.some(x => x.trim() !== '')).map(r => Object.fromEntries(head.map((h, i) => [h, (r[i] || '').trim()])));
+  }
+  const fmtTime = iso => iso ? new Date(iso).toLocaleString('en-SG', { timeZone:SGT, day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12:false }) : '—';
+  function age(iso) {
+    if (!iso) return '';
+    const h = (Date.now() - new Date(iso).getTime()) / 36e5;
+    return h < 1 ? 'under 1 h ago' : h < 48 ? Math.floor(h) + ' h ago' : Math.floor(h / 24) + ' days ago';
+  }
+  function stateOf(iso) {
+    if (!iso) return 'none';
+    const h = (Date.now() - new Date(iso).getTime()) / 36e5;
+    return h <= 72 ? 'fresh' : h <= 168 ? 'stale' : 'old';
+  }
+  function coord(lat, lon) {
+    const p = (v, a, b) => { const h = v >= 0 ? a : b; v = Math.abs(v); const d = Math.floor(v); return d + '°' + ((v - d) * 60).toFixed(1).padStart(4, '0') + '′' + h; };
+    return p(lat, 'N', 'S') + ' ' + p(lon, 'E', 'W');
+  }
+  function nm(a1, o1, a2, o2) {
+    const r = Math.PI / 180, dp = (a2 - a1) * r, dl = (o2 - o1) * r;
+    const x = Math.sin(dp / 2) ** 2 + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(dl / 2) ** 2;
+    return 2 * 3440.065 * Math.asin(Math.sqrt(x));
+  }
+  const where = (n, c) => c && c.toLowerCase() !== n.toLowerCase() ? n + ', ' + c : n;
+  function nearestPort(lat, lon) {
+    if (!ports || !ports.length) return null;
+    const k = Math.cos(lat * Math.PI / 180); let best = null, bd = Infinity;
+    for (const p of ports) { const dl = ((p[3] - lon + 540) % 360) - 180, d = (p[2] - lat) ** 2 + (dl * k) ** 2; if (d < bd) { bd = d; best = p; } }
+    const r = Math.PI / 180, y = Math.sin((lon - best[3]) * r) * Math.cos(lat * r);
+    const x = Math.cos(best[2] * r) * Math.sin(lat * r) - Math.sin(best[2] * r) * Math.cos(lat * r) * Math.cos((lon - best[3]) * r);
+    return { name:where(best[0], best[1]), country:best[1], dist:nm(best[2], best[3], lat, lon), dir:DIRS[Math.floor(((Math.atan2(y, x) / r + 360) % 360 + 22.5) / 45) % 8] };
+  }
+  // ---------- ship time, flag, type, port calls (same rules as scripts/insights.py) ----------
+  const zoneOf = lon => Math.max(-12, Math.min(12, Math.floor((lon + 7.5) / 15)));
+  function shipTime(lon) {
+    if (lon == null || isNaN(lon)) return '';
+    const z = zoneOf(lon), d = new Date(Date.now() + z * 36e5);
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} (UTC${z >= 0 ? '+' : '−'}${Math.abs(z)})`;
+  }
+  const flagOf = mmsi => mids[String(mmsi || '').slice(0, 3)] || '';
+  function typeText(c) {
+    c = Number(c); if (!c) return '';
+    const g = [[20,29,'Wing in ground'],[30,30,'Fishing'],[31,32,'Towing'],[33,33,'Dredging'],[34,34,'Diving'],[35,35,'Military'],[36,36,'Sailing'],[37,37,'Pleasure craft'],[40,49,'High-speed craft'],[50,50,'Pilot'],[51,51,'Search and rescue'],[52,52,'Tug'],[53,53,'Port tender'],[54,54,'Anti-pollution'],[55,55,'Law enforcement'],[58,58,'Medical transport'],[60,69,'Passenger'],[70,79,'Cargo'],[80,89,'Tanker'],[90,99,'Other']];
+    const m = g.find(([a, b]) => c >= a && c <= b); return m ? m[2] : '';
+  }
+  // fx: [{t, lat, lon, sp, st}] sorted by time -> [{kind, place, country, start, end, departed, lat, lon}]
+  function portCalls(fx) {
+    const calls = []; let cur = null;
+    const close = dep => { if (cur) { cur.departed = dep ?? null; calls.push(cur); } cur = null; };
+    for (const f of fx) {
+      if (cur && f.t - cur.end > 36 * 36e5) close();
+      const st = (f.st || '').toLowerCase(), sp = f.sp === '' || f.sp == null ? null : Number(f.sp);
+      if (!(st === 'moored' || st === 'at anchor' || (sp != null && sp < 0.5))) { close(f.t); continue; }
+      const np = nearestPort(f.lat, f.lon), d = np ? np.dist : 1e9;
+      const kind = st === 'moored' || (st !== 'at anchor' && d <= 5) ? 'Berthed' : d <= NEAR_NM ? 'At anchor' : 'Stopped offshore';
+      const place = np ? (d <= NEAR_NM ? np.name : `${Math.round(d)} nm from ${np.name}`) : '';
+      if (cur && cur.kind === kind && nm(cur.lat, cur.lon, f.lat, f.lon) <= 10) { cur.end = f.t; continue; }
+      close(f.t);
+      cur = { kind, place, country:np && d <= NEAR_NM ? np.country : '', start:f.t, end:f.t, lat:f.lat, lon:f.lon };
+    }
+    if (cur) { cur.departed = null; calls.push(cur); }
+    return calls;
+  }
+  // Readable AIS destination: crews often type UN/LOCODEs, e.g. 'FRLEH-->CNYSA' = Le Havre -> Yangshan.
+  function destination(raw) {
+    raw = (raw || '').trim(); if (!raw) return { next:'', from:'', raw:'' };
+    const parts = raw.toUpperCase().split(/\s*(?:-+>|=+>|<-+>|<>|>|\/|\bTO\b|\bVIA\b)\s*/).filter(x => x && x.trim());
+    const name = x => {
+      const w = x.trim(), m = /^([A-Z]{2})\s?([A-Z0-9]{3})$/.exec(w);
+      if (m && locode[m[1] + m[2]]) return locode[m[1] + m[2]];
+      return w.length > 3 && /^[A-Z ]+$/.test(w) ? w.toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : w;
+    };
+    const named = parts.length ? parts.map(name) : [raw];
+    let next = named[named.length - 1];
+    if (next.toUpperCase() === raw.toUpperCase()) next = raw;
+    return { next, from:named.length > 1 ? named[named.length - 2] : '', raw };
+  }
+  function destHTML(raw) {
+    const d = destination(raw); if (!d.raw) return '';
+    return `<div class="sub dest" title="AIS destination as typed by the crew: ${esc(d.raw)}">→ <b>${esc(d.next)}</b>${d.from ? ` <span>(from ${esc(d.from)})</span>` : ''}</div>`;
+  }
+  // Countries count from PORT CALLS only: berthed / at anchor at a port, within the period on board.
+  function onBoard(v, t) {
+    const st = (v._stints || []).filter(s => !isNaN(s.start));
+    if (!st.length) return true;
+    const d = dParse(sgtDate(t));
+    return st.some(s => s.start <= d && (isNaN(s.end) || d <= s.end));
+  }
+  const visitsOf = (v, all) => portCalls(all).filter(c => (c.kind === 'Berthed' || c.kind === 'At anchor') && c.country && onBoard(v, c.start));
+  function byCountry(calls) {
+    const out = new Map();
+    calls.forEach(c => {
+      const e = out.get(c.country) || { first:c.start, ports:[], calls:0, hours:0 };
+      const port = (c.place || '').split(',')[0].trim(); if (port && !e.ports.includes(port)) e.ports.push(port);
+      e.calls++; e.hours += ((c.departed || c.end) - c.start) / 36e5; out.set(c.country, e);
+    });
+    return out;
+  }
+  const fmtH = h => h < 48 ? `${Math.round(h)} h` : `${(h / 24).toFixed(1)} d`;
+  function stayText(c) {
+    const lo = (c.end - c.start) / 36e5;
+    if (!c.departed) return `at least ${fmtH(lo)}`;
+    const hi = (c.departed - c.start) / 36e5;
+    return fmtH(lo) === fmtH(hi) ? `about ${fmtH(hi)}` : `${fmtH(lo)}–${fmtH(hi)}`;
+  }
+  const shipFixes = (rows, id) => rows.filter(r => r.id === id).map(r => ({ t:Date.parse(r.ais_time_utc), lat:parseFloat(r.latitude), lon:parseFloat(r.longitude), sp:r.speed_kn, st:r.nav_status, dest:r.destination }))
+    .filter(f => !isNaN(f.t) && !isNaN(f.lat) && !isNaN(f.lon)).sort((a, b) => a.t - b.t);
+
+  // ---------- vessels.csv check (same rules as scripts/check_vessels.py) ----------
+  function imoOk(imo) { if (!/^\d{7}$/.test(imo)) return false; const d = [...imo].map(Number); return d.slice(0, 6).reduce((s, x, i) => s + x * (7 - i), 0) % 10 === d[6]; }
+  function checkRoster(list) {
+    const out = [], seen = {};
+    list.forEach(v => {
+      const who = `${v.id || '(no ID)'} ${v.vessel_name || ''}`.trim(), mmsi = String(v.mmsi || '').replace(/\D/g, ''), imo = String(v.imo || '').replace(/\D/g, '');
+      if (mmsi.length !== 9) out.push(`${who}: MMSI must be 9 digits`);
+      if (imo && !imoOk(imo)) out.push(`${who}: IMO ${imo} is not valid`);
+      ['start_date', 'end_date'].forEach(k => { if (v[k] && !/^\d{4}-\d{2}-\d{2}$/.test(v[k])) out.push(`${who}: ${k} must be YYYY-MM-DD`); });
+      if (v.start_date && v.end_date && v.end_date < v.start_date) out.push(`${who}: end_date is before start_date`);
+      const st = (v._stints || []).filter(s => !isNaN(s.start));
+      for (let i = 1; i < st.length; i++) {
+        if (isNaN(st[i - 1].end)) out.push(`${v.id}: sign-off date (end_date) missing before the next stint`);
+        else if (st[i].start <= st[i - 1].end) out.push(`${v.id}: stints overlap`);
+      }
+    });
+    return out;
+  }
+
+  function placeLabel(lat, lon) {
+    const n = nearestPort(lat, lon); if (!n) return '';
+    if (n.dist <= 3) return 'At ' + n.name;
+    if (n.dist <= NEAR_NM) return Math.round(n.dist) + ' nm ' + n.dir + ' of ' + n.name;
+    return 'At sea, ' + Math.round(n.dist) + ' nm ' + n.dir + ' of ' + n.name;
+  }
+  const loadPositions = () => positionsPromise || (positionsPromise = getText('data/positions.csv').then(parseCSV).catch(() => []));
+  const sgtDate = d => new Date(d).toLocaleDateString('en-CA', { timeZone:SGT });
+  // Time on board across stints (rows sharing an ID: sign-on start_date -> sign-off end_date,
+  // blank end_date = still on board). 26 weeks = 182 days on board; days signed off don't count.
+  const REQ_DAYS = 182, DAY = 864e5;
+  const dParse = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '') ? Date.parse(s + 'T00:00:00Z') : NaN;
+  const dShort = t => new Date(t).toLocaleDateString('en-SG', { day:'2-digit', month:'short', timeZone:'UTC' });
+  function periodInfo(stints) {
+    const today = dParse(sgtDate(Date.now())), dated = stints.filter(s => !isNaN(s.start));
+    const info = { status:'nodates', days:0, expectedEnd:null, pausedSince:null, nextStart:null };
+    if (!dated.length) return info;
+    const started = dated.filter(s => s.start <= today), future = dated.filter(s => s.start > today);
+    info.nextStart = future.length ? future[0].start : null;
+    started.forEach(s => { const stop = isNaN(s.end) ? today : Math.min(s.end, today); if (stop >= s.start) info.days += Math.round((stop - s.start) / DAY) + 1; });
+    const cur = started[started.length - 1];
+    if (info.days >= REQ_DAYS) info.status = 'completed';
+    else if (!cur) info.status = 'upcoming';
+    else if (isNaN(cur.end) || cur.end >= today) { info.status = 'onboard'; info.expectedEnd = today + (REQ_DAYS - info.days + 1) * DAY; }
+    else { info.status = 'paused'; info.pausedSince = cur.end; }
+    if ((info.status === 'paused' || info.status === 'upcoming') && info.nextStart) info.expectedEnd = info.nextStart + (REQ_DAYS - info.days) * DAY;
+    return info;
+  }
+  function period(v) {
+    const p = v._p || { status:'nodates', days:0 }, n = Math.min(p.days, REQ_DAYS) / REQ_DAYS;
+    if (p.status === 'nodates') return { text:'', n:0 };
+    if (p.status === 'completed') return { text:'Completed', n:2 };
+    if (p.status === 'upcoming') return { text:'Starts ' + dShort(p.nextStart), n:-1 };
+    if (p.status === 'paused') return { text:`Paused since ${dShort(p.pausedSince)} · Day ${p.days}/${REQ_DAYS}`, n, paused:true };
+    return { text:`Day ${p.days}/${REQ_DAYS}`, n };
+  }
+  function catColor(cat) {
+    const i = catOrder.indexOf(cat);
+    return (!cat || i < 0 || i >= 8) ? css('--none') : (isDark() ? CAT_DARK : CAT_LIGHT)[i];
+  }
+  // 'Ship' colour mode: each ship its own colour (12 distinct, repeats beyond that)
+  const SHIP_COLS = ['#2a78d6','#eb6834','#1baf7a','#9b51e0','#e8b100','#e34c8c','#00a5b5','#7a5c2e','#5b6cff','#d1452f','#3f9e3f','#8a8f98'];
+  const shipColor = v => SHIP_COLS[Math.max(0, vessels.indexOf(v)) % SHIP_COLS.length];
+  const dotColor = v => colourBy === 'ship' ? shipColor(v) : colourBy === 'category' && catOrder.length ? catColor(v.category) : css('--' + v._state);
+  let tracksMode = store.get('tracksMode', 'all');      // fleet map tracks: all ships, or the selected ship only
+  const shipById = id => vessels.find(v => v.id === id);
+  const visible = () => {
+    const q = query.toLowerCase();
+    return vessels.filter(v => (filter === 'all' || v._state === filter) &&
+      (!catFilter || (catFilter === '__none' ? !v.category : v.category === catFilter)) &&
+      (!q || [v.id, v.vessel_name, v.company, v.category].join(' ').toLowerCase().includes(q)));
+  };
+  function tiles(map) {
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom:12, attribution:'Tiles © Esri — Esri, HERE, Garmin, USGS, NGA, and other contributors' }).addTo(map);
+  }
+
+
+
+  // ---------- header: chips, run status, reports ----------
+  function renderChips() {
+    const c = { all:vessels.length, fresh:0, stale:0, old:0, none:0 };
+    vessels.forEach(v => c[v._state]++);
+    $('chips').innerHTML = [['all', 'All', ''], ['fresh', LABEL.fresh, 'fresh'], ['stale', LABEL.stale, 'stale'], ['old', LABEL.old, 'old'], ['none', LABEL.none, 'none']]
+      .map(([k, l, d]) => `<button class="chip-k" data-k="${k}" aria-pressed="${filter === k}">${d ? `<i class="dot ${d}"></i>` : ''}${l} <b>${c[k]}</b></button>`).join('');
+    $('chips').querySelectorAll('button').forEach(b => b.onclick = () => {
+      filter = filter === b.dataset.k ? 'all' : b.dataset.k; renderChips(); refreshAll();
+    });
+  }
+  function renderRun(run) {
+    const pill = $('runPill'), txt = $('runText');
+    if (!run || !run.last_run_utc) { pill.textContent = 'Logger not run yet'; txt.textContent = 'Runs every hour'; return; }
+    const ok = String(run.last_status || '').startsWith('ok');
+    const hrs = (Date.now() - new Date(run.last_run_utc).getTime()) / 36e5, late = ok && hrs > 4;
+    pill.textContent = !ok ? 'Logger problem' : late ? 'Logger late' : 'Logger OK';
+    pill.classList.toggle('bad', !ok); pill.classList.toggle('warn', late);
+    if (!ok) pill.title = run.last_status;
+    const h = (run.history || [])[0] || {};
+    txt.textContent = `Last run ${fmtTime(run.last_run_utc)} · heard ${h.vessels_heard ?? 0}/${h.vessels_tracked ?? 0} · hourly`;
+    if (late) banner(`<b>No new positions for ${Math.floor(hrs)} hours.</b> A scheduled log was missed (GitHub sometimes skips scheduled runs); it normally catches up at the next run. To log now: GitHub › Actions › Daily position log › Run workflow.`);
+  }
+  function toggleRun() {
+    if (!window.matchMedia('(max-width: 900px)').matches) return;
+    const h = document.querySelector('header'); h.classList.toggle('run-open');
+    $('runPill').setAttribute('aria-expanded', h.classList.contains('run-open'));
+  }
+  $('runPill').onclick = toggleRun;
+  $('runPill').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRun(); } };
+  function banner(html) { const b = $('banner'); b.style.display = 'block'; b.innerHTML += (b.innerHTML ? '<br>' : '') + html; }
+  function renderReports(list) {
+    // Only what is needed: report type and when it was sent (last 30 days). No counts or content.
+    const names = { quarterly:'Quarterly', monthly:'Monthly', countries:'Countries', period_end:'End of period', weekly:'Weekly' };
+    const since = Date.now() - 30 * 864e5;
+    const sent = list.filter(r => r.sent && Date.parse(r.sent) >= since).sort((a, b) => Date.parse(b.sent) - Date.parse(a.sent));
+    $('reports').innerHTML = sent.length
+      ? sent.map(r => `<li><span><span class="tag ${r.kind && r.kind !== 'weekly' ? 'm' : 'w'}">${esc(names[r.kind] || 'Report')}</span></span>`
+          + `<span class="sub">sent ${esc(fmtTime(r.sent))}${r.by ? ' · on request · ' + esc(r.by) : ''}</span></li>`).join('')
+      : '<li class="sub">No reports sent in the last 30 days.</li>';
+    const btn = $('reportsBtn'), pop = $('reportsPop');
+    btn.onclick = e => { e.stopPropagation(); const o = pop.classList.toggle('open'); btn.setAttribute('aria-expanded', o); };
+    document.addEventListener('click', e => { if (!pop.contains(e.target) && e.target !== btn) { pop.classList.remove('open'); btn.setAttribute('aria-expanded', false); } });
+  }
+
+  // ---------- Send a report by email ----------
+  // The key (inside the locked data) can only start the "Send report" job in the small private request
+  // repo. That job checks the Send code, which decides the staff member (S1, S2…) the report goes to.
+  function setupSend(cfg) {
+    const btn = $('sendBtn'), pop = $('sendPop'), go = $('sendGo'), msg = $('sendMsg');
+    if (!cfg || !cfg.key || !cfg.repo) { btn.hidden = true; return; }
+    btn.hidden = false;
+    const say = (t, cls) => { msg.textContent = t; msg.className = 'foot' + (cls ? ' ' + cls : ''); };
+    btn.onclick = e => { e.stopPropagation(); const o = pop.classList.toggle('open'); btn.setAttribute('aria-expanded', o); if (o) $('sendCode').focus(); };
+    document.addEventListener('click', e => { if (!pop.contains(e.target) && e.target !== btn) { pop.classList.remove('open'); btn.setAttribute('aria-expanded', false); } });
+    $('sendCode').onkeydown = e => { if (e.key === 'Enter') go.click(); };
+    const H = { Accept:'application/vnd.github+json', Authorization:'Bearer ' + cfg.key, 'X-GitHub-Api-Version':'2022-11-28' };
+    const base = 'https://api.github.com/repos/' + cfg.repo + '/actions/workflows/send.yml';
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    go.onclick = async () => {
+      const kind = $('sendKind').value, code = $('sendCode').value.trim(), name = $('sendKind').selectedOptions[0].textContent.split(' (')[0];
+      if (!code) { say('Enter your Send code.', 'bad'); return; }
+      go.disabled = true; say('Sending the request…');
+      const t0 = Date.now();
+      try {
+        const r = await fetch(base + '/dispatches', { method:'POST', headers:Object.assign({ 'Content-Type':'application/json' }, H),
+          body:JSON.stringify({ ref:'main', inputs:{ report:kind, code } }) });
+        if (r.status !== 204) throw new Error('the request was refused (' + r.status + ')');
+        $('sendCode').value = '';
+        say('Request sent. Checking your Send code…');
+        for (let i = 0; i < 30; i++) {
+          await wait(4000);
+          const j = await (await fetch(base + '/runs?event=workflow_dispatch&per_page=5', { headers:H })).json();
+          const run = (j.workflow_runs || []).find(x => Date.parse(x.created_at) >= t0 - 60000 && (x.display_title || '').includes(kind));
+          if (run && run.status === 'completed') {
+            if (run.conclusion === 'success') say(`Accepted. The ${name.toLowerCase()} report will reach your SP email in about 3–5 minutes.`, 'ok');
+            else say('Not sent: the Send code was not accepted (or Send is paused after too many tries today).', 'bad');
+            return;
+          }
+        }
+        say('Still being checked. If your Send code was right, the email arrives in a few minutes.');
+      } catch (e) { say('Could not send: ' + (e.message || e) + '.', 'bad'); }
+      finally { go.disabled = false; }
+    };
+  }
+
+  // ---------- category sections ----------
+  // Default: only the latest category is open (highest number, e.g. 2620 before 2615;
+  // test categories marked TS never open by default). Others start collapsed.
+  const NOCAT = 'No category';
+  const isTS = c => /\bTS\b/i.test(c || '');
+  const catNum = c => { const m = /\d+/.exec(c || ''); return m ? Number(m[0]) : -1; };
+  const catOf = v => v.category || NOCAT;
+  function latestCat(cats) {
+    cats = cats.filter(Boolean);
+    const pool = cats.filter(c => !isTS(c)), use = pool.length ? pool : cats;
+    if (!use.length) return '';
+    const best = Math.max(...use.map(catNum));
+    return use.filter(c => catNum(c) === best).pop();
+  }
+  const catRank = (c, open) => [c !== open, c === NOCAT, isTS(c), -catNum(c)];
+  function catCompare(a, b, open) {
+    const x = catRank(a, open), y = catRank(b, open);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+    return a.localeCompare(b, undefined, { numeric:true });
+  }
+  let openCats = null, defaultCat = '';
+  // Categories hidden on the fleet map (map only; remembered on this device).
+  const hiddenCats = new Set(store.get('hiddenCats', []));
+  const saveHidden = () => store.set('hiddenCats', [...hiddenCats]);
+  // Categories hidden on the timeline (separate from the fleet map; remembered on this device).
+  const hiddenCatsTL = new Set(store.get('hiddenCatsTL', []));
+  const saveHiddenTL = () => store.set('hiddenCatsTL', [...hiddenCatsTL]);
+  // Category chips that hide/show categories in a panel (fleet map or timeline).
+  function catChips(set, what) {
+    const cats = [...new Set(vessels.map(catOf))].sort((a, b) => catCompare(a, b, defaultCat));
+    if (!(cats.length > 1 || catOrder.length)) return '';
+    return cats.map(c => {
+      const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
+      const on = !set.has(c);
+      return `<button class="catchip" data-hc="${esc(c)}" aria-pressed="${on}" title="${on ? 'Hide' : 'Show'} ${esc(c)} on the ${what}">${dot}<span class="cn">${esc(c)}</span></button>`;
+    }).join('');
+  }
+
+  // ---------- table ----------
+  // Tracking period: start → end dates, day count and a progress bar.
+  const fmtD = d => new Date(d + 'T00:00:00+08:00').toLocaleDateString('en-SG', { day:'2-digit', month:'short', year:'numeric', timeZone:SGT });
+  function periodHTML(v, a, cls) {
+    if (!a.text) return '';
+    const pct = a.n === -1 ? 0 : a.n === 2 ? 100 : Math.round(a.n * 100), p = v._p || {};
+    const first = (v._stints || []).find(s => !isNaN(s.start));
+    const dates = a.paused ? '' : first ? `${fmtD(new Date(first.start).toISOString().slice(0, 10))} → ${p.expectedEnd ? 'exp. ' + fmtD(new Date(p.expectedEnd).toISOString().slice(0, 10)) : ''}` : '';
+    return `<div class="per ${cls || ''} ${a.n === 2 ? 'done' : ''} ${a.paused ? 'paused' : ''}" title="Time on board (26 weeks = ${REQ_DAYS} days)">
+      <div class="pt"><span class="pd">${esc(dates)}</span><b>${esc(a.text)}</b></div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Period progress"><i style="width:${pct}%"></i></div></div>`;
+  }
+  function rowHTML(v) {
+      const p = latest[v.id] || {}, a = period(v);
+      const status = [p.nav_status, p.speed_kn != null ? p.speed_kn + ' kn' : ''].filter(Boolean).join(' · ');
+      return `<tr data-id="${esc(v.id)}" class="${v.id === selectedId ? 'sel' : ''}">
+        <td class="idc">${esc(v.id)}</td>
+        <td><div class="vn">${v.category ? `<i class="dot" style="background:${catColor(v.category)}" title="${esc(v.category)}"></i>` : ''}${esc(v.vessel_name)}</div>
+            <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>${periodHTML(v, a, 'show-s')}</td>
+        <td class="nowrap"><i class="dot ${v._state}"></i>${p.last_seen_utc ? esc(age(p.last_seen_utc)) : '<span class="sub">none</span>'}
+            ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}
+            ${p.longitude != null ? `<div class="sub" title="Approximate ship time (nautical time zone)">Ship ~${esc(shipTime(p.longitude))}</div>` : ''}</td>
+        <td>${p.latitude != null ? esc(v._place || coord(p.latitude, p.longitude)) : '<span class="sub">—</span>'}
+            ${destHTML(p.destination)}
+            ${status ? `<div class="sub show-s">${esc(status)}</div>` : ''}</td>
+        <td class="hide-s sub">${esc(status) || '—'}</td>
+        <td class="hide-s">${periodHTML(v, a) || '<span class="sub">—</span>'}</td>
+        <td>${v.imo ? `<a class="vf" href="https://www.vesselfinder.com/vessels/details/${encodeURIComponent(v.imo)}" target="_blank" rel="noopener" title="Open in VesselFinder" aria-label="Open ${esc(v.vessel_name)} in VesselFinder">↗</a>` : ''}</td>
+      </tr>`;
+  }
+  function renderTable() {
+    let list = visible();
+    if (sortKey) list = list.slice().sort((a, b) => {
+      const x = a[sortKey] ?? '', y = b[sortKey] ?? '';
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric:true })) * sortDir;
+    });
+    const qq = query.toLowerCase();
+    const sb = filter !== 'all' ? [] : standby.filter(v => (!catFilter || (catFilter === '__none' ? !v.category : v.category === catFilter)) &&
+      (!qq || [v.id, v.category, 'standby'].join(' ').toLowerCase().includes(qq)));
+    $('count').textContent = (list.length === vessels.length ? `${list.length} vessels` : `${list.length} of ${vessels.length}`) + (standby.length ? ` · ${standby.length} standby` : '');
+    let html;
+    if (!list.length && !sb.length) html = `<tr><td colspan="7" class="sub" style="text-align:center;padding:20px">No vessels match.</td></tr>`;
+    else if (!catOrder.length) html = list.map(rowHTML).join('');
+    else {
+      const groups = new Map();
+      list.forEach(v => { const c = catOf(v); if (!groups.has(c)) groups.set(c, []); groups.get(c).push(v); });
+      const sbg = new Map();
+      sb.forEach(v => { const c = catOf(v); if (!groups.has(c)) groups.set(c, []); if (!sbg.has(c)) sbg.set(c, []); sbg.get(c).push(v); });
+      const searching = !!query.trim();
+      html = [...groups.keys()].sort((a, b) => catCompare(a, b, defaultCat)).map(c => {
+        const vs = groups.get(c), ss = sbg.get(c) || [], open = searching || openCats.has(c), recent = vs.filter(v => v._state === 'fresh').length;
+        const dot = c === NOCAT ? '<i class="dot none"></i>' : `<i class="dot" style="background:${catColor(c)}"></i>`;
+        const parts = [];
+        if (vs.length) parts.push(`${vs.length} ship${vs.length === 1 ? '' : 's'}`, `${recent} seen in last 3 days`);
+        if (ss.length) parts.push(`${ss.length} standby`);
+        return `<tr class="grp"><td colspan="7"><button class="gbtn" data-cat="${esc(c)}" aria-expanded="${open}"><span class="caret" aria-hidden="true">▸</span>${dot}<b>${esc(c)}</b>
+          <span class="sub">· ${parts.join(' · ')}</span></button></td></tr>` +
+          (open ? vs.map(rowHTML).join('') + ss.map(v => `<tr class="sbrow"><td class="idc">${esc(v.id)}</td><td colspan="6" class="sub">Standby · no vessel assigned yet</td></tr>`).join('') : '');
+      }).join('');
+    }
+    $('rows').innerHTML = html;
+    $('rows').querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = e => { if (e.target.closest('a')) return; select(tr.dataset.id, true); });
+    $('rows').querySelectorAll('.gbtn').forEach(b => b.onclick = () => {
+      const c = b.dataset.cat; openCats.has(c) ? openCats.delete(c) : openCats.add(c); renderTable();
+    });
+  }
+  function select(id, fromTable, noScroll) {
+    selectedId = id;
+    const v = shipById(id);
+    if (v && openCats && catOrder.length && !openCats.has(catOf(v))) { openCats.add(catOf(v)); renderTable(); }
+    $('rows').querySelectorAll('tr[data-id]').forEach(tr => tr.classList.toggle('sel', tr.dataset.id === id));
+    if (!fromTable && !noScroll) { const tr = $('rows').querySelector(`tr[data-id="${CSS.escape(id)}"]`); if (tr) tr.scrollIntoView({ block:'nearest' }); }
+    if (fromTable && v && hiddenCats.has(catOf(v))) { hiddenCats.delete(catOf(v)); saveHidden(); P.forEach(q => q.mode === 'fleet' && renderPane(q)); }
+    if (fromTable && P.length === 2) {
+      // Clicking a ship in the table: top panel = fleet map zoomed to it, bottom panel = its route.
+      const [top, bot] = P;
+      if (top.mode !== 'fleet') { top.mode = 'fleet'; renderPane(top); }
+      bot.mode = 'route';
+      save();
+      focusFleet(top, id, 7);
+      renderPane(bot);
+      if (window.matchMedia('(max-width: 900px)').matches) top.el.scrollIntoView({ behavior:'smooth', block:'start' });
+      return;
+    }
+    P.forEach(p => {
+      if (p.mode === 'fleet') focusFleet(p, id);
+      else renderPane(p);                   // route / timeline panels show the selected ship
+    });
+  }
+
+  // ---------- map panes ----------
+  const P = [];
+  // The ship menu in a panel chooses the ship for the whole dashboard (same as clicking it in the table).
+  function catPicker(p) {
+    const cats = catOrder.filter(c => vessels.some(v => catOf(v) === c));
+    if (cats.length < 2 && !vessels.some(v => !v.category)) return '';
+    const opts = ['<option value="">All categories</option>'].concat(cats.map(c => `<option value="${esc(c)}" ${p.cat === c ? 'selected' : ''}>${esc(c)}</option>`));
+    if (vessels.some(v => !v.category)) opts.push(`<option value="${NOCAT}" ${p.cat === NOCAT ? 'selected' : ''}>${NOCAT}</option>`);
+    return `<select class="pcat" aria-label="Category">${opts.join('')}</select>`;
+  }
+  function shipOptions(cat) {
+    return vessels.filter(v => !cat || catOf(v) === cat).slice().sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true })).map(v => `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
+  }
+
+  function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to, cat:p.cat || '', cview:p.cview || 'all', crange:p.crange || 'att' }))); }
+  function destroy(p) { if (p.map) { p.map.remove(); p.map = null; } p.markers = {}; }
+
+  function renderPane(p) {
+    destroy(p);
+    const ship = shipById(selectedId);
+    if (ship && p.cat && catOf(ship) !== p.cat) p.cat = catOf(ship);   // keep the category menu in step with the ship
+    let tools = `<select class="mode" aria-label="What this panel shows">${Object.entries(MODES).map(([k, l]) => `<option value="${k}" ${p.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    if (p.mode === 'fleet') {
+      tools += `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button>${catOrder.length ? `<button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button>` : ''}<button data-c="ship" class="${colourBy === 'ship' ? 'on' : ''}">Ship</button></div>`;
+      tools += `<div class="seg" role="group" aria-label="Tracks (last 7 days)" title="Tracks for the last 7 days"><button data-t="all" class="${tracksMode === 'all' ? 'on' : ''}">All tracks</button><button data-t="sel" class="${tracksMode === 'sel' ? 'on' : ''}">Selected</button></div>`;
+      tools += `<button class="hbtn" data-act="fit">Fit all</button>`;
+    } else if (p.mode === 'timeline') {
+      tools += `<div class="tinfo" aria-label="Categories">${catChips(hiddenCatsTL, 'timeline')}</div>`;
+    } else if (p.mode === 'countries') {
+      const cv = p.cview || 'all';
+      tools += `<select class="cview" aria-label="Show countries for"><option value="all">All ships</option>${catOrder.filter(c => vessels.some(v => catOf(v) === c)).map(c => `<option value="c:${esc(c)}" ${cv === 'c:' + c ? 'selected' : ''}>Category ${esc(c)}</option>`).join('')}${vessels.map(v => `<option value="s:${esc(v.id)}" ${cv === 's:' + v.id ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('')}</select>`;
+      tools += `<div class="seg" role="group" aria-label="Period">${[['att', 'Period'], ['30', '30 d'], ['7', '7 d']].map(([k, l]) => `<button data-cr="${k}" class="${(p.crange || 'att') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    } else {
+      tools += catPicker(p) + `<select class="ship" aria-label="Vessel">${shipOptions(p.cat)}</select>`;
+      if (p.mode === 'route') {
+        tools += `<div class="seg" role="group" aria-label="Period">${[['7', '7 d'], ['30', '30 d'], ['all', 'All'], ['c', 'Dates']].map(([k, l]) => `<button data-r="${k}" class="${p.range === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+        if (p.range === 'c') {
+          const today = sgtDate(Date.now());
+          tools += `<input type="date" class="from" aria-label="From" value="${p.from || sgtDate(Date.now() - 30 * 864e5)}" max="${today}"><input type="date" class="to" aria-label="To" value="${p.to || today}" max="${today}">`;
+        }
+      }
+    }
+    p.el.innerHTML = `<div class="ptool">${tools}</div><div class="pbody"></div>`;
+    const body = p.el.querySelector('.pbody');
+    p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
+    const shipSel = p.el.querySelector('.ship');
+    if (shipSel) shipSel.onchange = e => select(e.target.value, false, true);
+    const catSel = p.el.querySelector('.pcat');
+    if (catSel) catSel.onchange = e => {
+      p.cat = e.target.value; save();
+      const cur = shipById(selectedId), first = vessels.find(v => !p.cat || catOf(v) === p.cat);
+      if (first && (!cur || (p.cat && catOf(cur) !== p.cat))) select(first.id, false, true); else renderPane(p);
+    };
+    p.el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { colourBy = b.dataset.c; store.set('colourBy', colourBy); P.forEach(q => q.mode === 'fleet' && renderPane(q)); });
+    p.el.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tracksMode = b.dataset.t; store.set('tracksMode', tracksMode); P.forEach(q => q.mode === 'fleet' && renderPane(q)); });
+    p.el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { p.range = b.dataset.r; save(); renderPane(p); });
+    p.el.querySelectorAll('.from,.to').forEach(i => i.onchange = () => { p.from = p.el.querySelector('.from').value; p.to = p.el.querySelector('.to').value; save(); renderPane(p); });
+    const fit = p.el.querySelector('[data-act=fit]'); if (fit) fit.onclick = () => fitFleet(p);
+
+    if (p.mode === 'fleet') return drawFleet(p, body);
+    if (p.mode === 'timeline') return drawTimeline(p, body);
+    if (p.mode === 'countries') {
+      const cs = p.el.querySelector('.cview'); if (cs) cs.onchange = e => { p.cview = e.target.value; save(); renderPane(p); };
+      p.el.querySelectorAll('[data-cr]').forEach(b => b.onclick = () => { p.crange = b.dataset.cr; save(); renderPane(p); });
+      return drawCountries(p, body);
+    }
+    if (!ship) { body.innerHTML = '<div class="msg">Click a vessel in the table, or pick one above.</div>'; return; }
+    drawRoute(p, body, ship);
+  }
+
+  function newMap(p, body) {
+    const el = document.createElement('div'); el.className = 'lmap'; body.appendChild(el);
+    if (!window.L) { body.innerHTML = '<div class="msg">Map could not load.</div>'; return null; }
+    const m = L.map(el, { worldCopyJump:true, zoomControl:true }).setView([15, 100], 3); tiles(m); p.map = m; return m;
+  }
+  function drawFleet(p, body) {
+    const m = newMap(p, body); if (!m) return;
+    p.markers = {};
+    visible().forEach(v => {
+      const q = latest[v.id]; if (!q || q.latitude == null || hiddenCats.has(catOf(v))) return;
+      p.markers[v.id] = L.circleMarker([q.latitude, q.longitude], { radius:v.id === selectedId ? 9 : 7, color:'#fff', weight:2, fillColor:dotColor(v), fillOpacity:1 })
+        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}<br>${esc(fmtTime(q.last_seen_utc))} SGT (${esc(age(q.last_seen_utc))})<br>Ship time ~${esc(shipTime(q.longitude))}`, { direction:'top' })
+        .on('click', () => select(v.id)).addTo(m);
+    });
+    const leg = document.createElement('div'); leg.className = 'tinfo'; leg.setAttribute('aria-label', 'Legend');
+    const chips = catChips(hiddenCats, 'map');
+    leg.innerHTML = chips + (colourBy === 'ship'
+      ? visible().filter(v => p.markers[v.id]).map(v => `<span class="shipkey" data-id="${esc(v.id)}"><i class="dot" style="background:${shipColor(v)}"></i>${esc(v.id)}</span>`).join('')
+      : colourBy === 'category' && catOrder.length ? ''
+      : '<span><i class="dot fresh"></i>Last 3 days</span><span><i class="dot stale"></i>3–7 days</span><span><i class="dot old"></i>Over 7 days</span>');
+    leg.querySelectorAll('.shipkey').forEach(k => k.onclick = () => select(k.dataset.id));
+    leg.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => {
+      const c = b.dataset.hc; hiddenCats.has(c) ? hiddenCats.delete(c) : hiddenCats.add(c); saveHidden();
+      P.forEach(q => q.mode === 'fleet' && renderPane(q));
+    });
+    p.el.querySelector('.ptool').appendChild(leg);
+    m.on('click', () => highlightFleet(p, null));
+    drawFleetTracks(p, m);
+    if (!Object.keys(p.markers).length) { const d = document.createElement('div'); d.className = 'overlay'; d.style.cssText = 'left:50%;top:12px;transform:translateX(-50%)'; d.textContent = hiddenCats.size ? 'No ships to show. Some categories are hidden: click a category above to show it.' : 'No positions logged yet for these vessels.'; body.appendChild(d); }
+    fitFleet(p);
+  }
+  function fitFleet(p) {
+    if (!p.map) return;
+    const pts = Object.values(p.markers).map(mk => mk.getLatLng());
+    if (pts.length) p.map.fitBounds(pts, { padding:[30, 30], maxZoom:7 });
+  }
+  // ---------- tracks: direction arrows, start marker, name on hover, tap to highlight ----------
+  const mercY = lat => Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, lat)) * Math.PI / 360));
+  function screenAngle(a, b) {        // degrees clockwise from north, as drawn on a Web Mercator map
+    let dl = b[1] - a[1]; dl = ((dl + 540) % 360) - 180;
+    return Math.atan2(dl * Math.PI / 180, mercY(b[0]) - mercY(a[0])) * 180 / Math.PI;
+  }
+  function trackLayers(m, pts, col, label, onClick) {
+    const layers = [];
+    if (pts.length > 1) {
+      const line = L.polyline(pts, { color:col, weight:2.5, opacity:.75 }).bindTooltip(label, { sticky:true });
+      layers.push(line);
+      // arrows at the middle of longer legs (at most 8 per track)
+      const legs = [];
+      for (let i = 1; i < pts.length; i++) { const d = nm(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); if (d > 20) legs.push([pts[i - 1], pts[i], d]); }
+      const step = Math.max(1, Math.ceil(legs.length / 8));
+      legs.filter((_, i) => i % step === 0).forEach(([a, b]) => {
+        const icon = L.divIcon({ className:'arrowmk', iconSize:[14, 14], iconAnchor:[7, 7],
+          html:`<svg width="14" height="14" viewBox="0 0 14 14" style="transform:rotate(${screenAngle(a, b).toFixed(0)}deg)"><path d="M7 1 L12.5 12 L7 9 L1.5 12 Z" fill="${col}" stroke="#fff" stroke-width="1"/></svg>` });
+        layers.push(L.marker([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], { icon, keyboard:false, interactive:false }));
+      });
+      // hollow dot where the track starts
+      layers.push(L.circleMarker(pts[0], { radius:4, color:col, weight:2, fillColor:'#fff', fillOpacity:1 }).bindTooltip(label + ' · start of track', { direction:'top' }));
+    }
+    layers.forEach(l => { if (onClick && l.on) l.on('click', e => { L.DomEvent.stopPropagation(e); onClick(); }); l.addTo(m); });
+    return layers;
+  }
+  async function drawFleetTracks(p, m) {
+    p.tracks = {};
+    const rows = await loadPositions();
+    if (p.map !== m) return;                              // pane redrawn meanwhile
+    const from = Date.now() - 7 * 864e5;
+    Object.keys(p.markers).forEach(id => {
+      if (tracksMode === 'sel' && id !== selectedId) return;
+      const v = shipById(id), q = latest[id];
+      const pts = shipFixes(rows, id).filter(f => f.t >= from).map(f => [f.lat, f.lon]);
+      if (!pts.length || pts[pts.length - 1][0] !== q.latitude || pts[pts.length - 1][1] !== q.longitude) pts.push([q.latitude, q.longitude]);
+      p.tracks[id] = trackLayers(m, pts, dotColor(v), `${v.id} · ${v.vessel_name}`, () => select(id));
+    });
+    Object.values(p.markers).forEach(mk => mk.bringToFront());
+    highlightFleet(p, p.hl || null);
+  }
+  function highlightFleet(p, id) {
+    p.hl = id;
+    Object.entries(p.markers || {}).forEach(([k, mk]) => {
+      const on = !id || k === id;
+      mk.setStyle({ fillOpacity:on ? 1 : .35, opacity:on ? 1 : .35 }); mk.setRadius(k === id ? 9 : 7);
+      (p.tracks && p.tracks[k] || []).forEach(l => {
+        if (l.setStyle && l.getLatLngs) l.setStyle({ opacity:on ? (k === id ? 1 : .75) : .12, weight:k === id ? 4.5 : 2.5 });
+        else if (l.setStyle) l.setStyle({ opacity:on ? 1 : .2, fillOpacity:on ? 1 : .2 });
+        else if (l.setOpacity) l.setOpacity(on ? 1 : .15);
+      });
+    });
+    if (id && p.markers[id]) { (p.tracks && p.tracks[id] || []).forEach(l => l.bringToFront && l.bringToFront()); p.markers[id].bringToFront(); }
+  }
+  function focusFleet(p, id, zoom) {
+    if (tracksMode === 'sel') { renderPane(p); }
+    highlightFleet(p, id);
+    const mk = p.markers && p.markers[id];
+    if (mk && p.map) { mk.bringToFront && mk.bringToFront(); p.map.setView(mk.getLatLng(), Math.max(p.map.getZoom(), zoom || 6)); mk.openTooltip(); }
+  }
+  async function drawRoute(p, body, ship) {
+    body.innerHTML = '<div class="msg">Loading…</div>';
+    const rows = await loadPositions();
+    if (!p.el.contains(body)) return;           // pane re-rendered meanwhile
+    let from = -Infinity, to = Date.now();
+    if (p.range === '7' || p.range === '30') from = Date.now() - Number(p.range) * 864e5;
+    if (p.range === 'c') { from = Date.parse((p.from || sgtDate(Date.now() - 30 * 864e5)) + 'T00:00:00+08:00'); to = Date.parse((p.to || sgtDate(Date.now())) + 'T23:59:59+08:00'); }
+    const all = shipFixes(rows, ship.id), fx = all.filter(f => f.t >= from && f.t <= to);
+    const calls = portCalls(all).filter(c => c.end >= from && c.start <= to);
+    body.innerHTML = '';
+    const infoCard = shipCard(ship, all, calls);
+    if (!fx.length) {
+      body.innerHTML = `<div class="msg">No positions logged for ${esc(ship.vessel_name)} in this period.</div>`;
+      addInfoButton(p, body, infoCard);
+      return;
+    }
+    fx.forEach(f => { f.place = placeLabel(f.lat, f.lon); f.near = nearestPort(f.lat, f.lon); });
+    let dist = 0; for (let i = 1; i < fx.length; i++) dist += nm(fx[i - 1].lat, fx[i - 1].lon, fx[i].lat, fx[i].lon);
+    const visited = []; visitsOf(ship, all).filter(c => c.end >= from && c.start <= to).forEach(c => { if (c.place && !visited.includes(c.place)) visited.push(c.place); });
+    const m = newMap(p, body); if (!m) return;
+    const col = ship.category ? catColor(ship.category) : css('--accent'), pts = fx.map(f => [f.lat, f.lon]);
+    if (pts.length > 1) trackLayers(m, pts, col, `${ship.id} · ${ship.vessel_name}`);
+    fx.forEach((f, i) => {
+      const last = i === fx.length - 1;
+      L.circleMarker([f.lat, f.lon], { radius:last ? 8 : 4, color:'#fff', weight:last ? 2 : 1, fillColor:col, fillOpacity:1 })
+        .bindTooltip(`${esc(fmtTime(f.t))} SGT<br>${esc(f.place)}`, { direction:'top' }).addTo(m);
+    });
+    calls.forEach(c => {
+      const icon = L.divIcon({ className:'callmk', html:`<span class="cm ${c.kind === 'Berthed' ? 'b' : c.kind === 'At anchor' ? 'a' : 'o'}">${c.kind === 'Berthed' ? 'B' : c.kind === 'At anchor' ? 'A' : 'S'}</span>`, iconSize:[18, 18], iconAnchor:[9, 9] });
+      L.marker([c.lat, c.lon], { icon, keyboard:false }).bindTooltip(`<b>${esc(c.kind)}</b> ${esc(c.place)}<br>${esc(fmtTime(c.start))} → ${c.departed ? esc(fmtTime(c.departed)) : 'still there'}<br>Stopped ${esc(stayText(c))}`, { direction:'top' }).addTo(m);
+    });
+    m.fitBounds(pts, { padding:[30, 30], maxZoom:8 });
+    const days = new Set(fx.map(f => sgtDate(f.t))).size;
+    const info = document.createElement('div'); info.className = 'tinfo';
+    const placesTxt = visited.length ? 'Port calls: ' + visited.join(' → ') : 'No port calls';
+    info.innerHTML = `<span>${fx.length} pos · ${days} d · ~${Math.round(dist)} nm</span>
+      <span class="places" title="${esc(placesTxt)}">${esc(placesTxt)}</span>
+      <button class="hbtn" type="button" aria-expanded="false">List ▾</button>`;
+    p.el.querySelector('.ptool').appendChild(info);
+    const list = document.createElement('div'); list.className = 'overlay plist'; list.hidden = true;
+    list.innerHTML = `<table><thead><tr><th>Time (SGT)</th><th>Place</th><th>Status</th></tr></thead><tbody>
+      ${fx.slice().reverse().map(f => `<tr><td>${esc(fmtTime(f.t))}</td><td>${esc(f.place)}</td><td>${esc([f.st, f.sp ? f.sp + ' kn' : ''].filter(Boolean).join(' · '))}</td></tr>`).join('')}
+      </tbody></table>`;
+    L.DomEvent && L.DomEvent.disableClickPropagation && L.DomEvent.disableClickPropagation(list);
+    L.DomEvent && L.DomEvent.disableScrollPropagation && L.DomEvent.disableScrollPropagation(list);
+    body.appendChild(list);
+    const lb = info.querySelector('button');
+    lb.onclick = () => { list.hidden = !list.hidden; lb.setAttribute('aria-expanded', !list.hidden); lb.textContent = list.hidden ? 'List ▾' : 'List ▴'; if (!list.hidden) closeCard(p); };
+    addInfoButton(p, body, infoCard, () => { list.hidden = true; lb.setAttribute('aria-expanded', false); lb.textContent = 'List ▾'; });
+  }
+
+  // ---------- ship info card (particulars, period, ship time, countries, port calls) ----------
+  function shipCard(v, all, calls) {
+    const q = latest[v.id] || {}, a = period(v);
+    const rowsKV = [
+      ['Flag', flagOf(v.mmsi)], ['Type', typeText(q.ship_type)],
+      ['Size', q.length_m ? `${q.length_m} × ${q.beam_m} m` : ''], ['Draught', q.draught_m ? `${q.draught_m} m` : ''],
+      ['Call sign', q.callsign], ['IMO / MMSI', [v.imo, v.mmsi].filter(Boolean).join(' / ')],
+      ['Next port', (d => d.raw ? d.next + (d.from ? ' (from ' + d.from + ')' : '') + (d.next !== d.raw ? ' · AIS: ' + d.raw : '') : '')(destination(q.destination))], ['ETA (AIS)', q.eta],
+      ['Last seen', q.last_seen_utc ? `${fmtTime(q.last_seen_utc)} SGT (${age(q.last_seen_utc)})` : 'none'],
+      ['Ship time', q.longitude != null ? `~${shipTime(q.longitude)}` : ''],
+    ].filter(([, x]) => x);
+    const countries = [...byCountry(visitsOf(v, all)).keys()];
+    const recent = portCalls(all).slice(-6).reverse();
+    return `<h3>${esc(v.id)} · ${esc(v.vessel_name)}</h3>
+      <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>
+      ${periodHTML(v, a)}
+      <table class="kv">${rowsKV.map(([k, x]) => `<tr><th>${esc(k)}</th><td>${esc(x)}</td></tr>`).join('')}</table>
+      <h4>Countries visited (port calls, whole period)</h4><div>${countries.length ? countries.map(c => `<span class="pchip">${esc(c)}</span>`).join('') : '<span class="sub">None yet</span>'}</div>
+      <h4>Recent port calls / stops</h4>
+      ${recent.length ? `<table class="kv calls">${recent.map(c => `<tr><th>${esc(c.kind)}</th><td>${esc(c.place)}<div class="sub">${esc(fmtTime(c.start))} → ${c.departed ? esc(fmtTime(c.departed)) : 'still there'} · ${esc(stayText(c))}</div></td></tr>`).join('')}</table>` : '<div class="sub">None detected yet</div>'}
+      <p class="sub">Particulars come from the ship's own AIS broadcast and fill in as it is heard. Ship time uses the nautical time zone. Port calls are estimated from logged positions.</p>`;
+  }
+  function closeCard(p) { const c = p.el.querySelector('.shipcard'), b = p.el.querySelector('[data-act=info]'); if (c) c.hidden = true; if (b) { b.setAttribute('aria-expanded', false); b.textContent = 'Info ▾'; } }
+  function addInfoButton(p, body, html, onOpen) {
+    let tinfo = p.el.querySelector('.ptool .tinfo');
+    if (!tinfo) { tinfo = document.createElement('div'); tinfo.className = 'tinfo'; p.el.querySelector('.ptool').appendChild(tinfo); }
+    const b = document.createElement('button'); b.className = 'hbtn'; b.type = 'button'; b.dataset.act = 'info'; b.setAttribute('aria-expanded', 'false'); b.textContent = 'Info ▾';
+    tinfo.appendChild(b);
+    const card = document.createElement('div'); card.className = 'overlay plist shipcard'; card.hidden = true; card.innerHTML = html;
+    if (window.L && L.DomEvent) { L.DomEvent.disableClickPropagation(card); L.DomEvent.disableScrollPropagation(card); }
+    body.appendChild(card);
+    b.onclick = () => { card.hidden = !card.hidden; b.setAttribute('aria-expanded', !card.hidden); b.textContent = card.hidden ? 'Info ▾' : 'Info ▴'; if (!card.hidden && onOpen) onOpen(); };
+  }
+
+  // ---------- countries visited (port calls only) ----------
+  let geoPromise = null;
+  const loadGeo = () => geoPromise || (geoPromise = getJSON('assets/countries.geojson', { features:[] }));
+  async function drawCountries(p, body) {
+    body.innerHTML = '<div class="msg">Loading…</div>';
+    const [rows, geo] = await Promise.all([loadPositions(), loadGeo()]);
+    if (!p.el.contains(body)) return;
+    body.innerHTML = '';
+    const cv = p.cview || 'all', from = p.crange === '30' ? Date.now() - 30 * 864e5 : p.crange === '7' ? Date.now() - 7 * 864e5 : -Infinity;
+    const pick = cv === 'all' ? vessels : cv.startsWith('c:') ? vessels.filter(v => catOf(v) === cv.slice(2)) : vessels.filter(v => v.id === cv.slice(2));
+    const ships = pick.map(v => ({ v, calls:visitsOf(v, shipFixes(rows, v.id)).filter(c => c.end >= from) })).filter(x => x.calls.length);
+    const alias = { 'Congo':'Republic of the Congo' }, count = {}, perShip = {};
+    ships.forEach(x => { const bc = byCountry(x.calls); perShip[x.v.id] = bc; [...bc.keys()].forEach(c => { const k = alias[c] || c; count[k] = (count[k] || 0) + 1; }); });
+    const m = newMap(p, body); if (!m) return;
+    const col = cv.startsWith('s:') ? shipColor(pick[0]) : cv.startsWith('c:') ? catColor(cv.slice(2)) : css('--accent');
+    const max = Math.max(1, ...Object.values(count));
+    // Keep only the land parts near a port called at (France's outline includes French Guiana, etc.).
+    const pts = {}; ships.forEach(x => x.calls.forEach(c => { const k = alias[c.country] || c.country; (pts[k] = pts[k] || []).push([c.lat, c.lon]); }));
+    const near = (poly, ps) => { const xs = poly[0].map(q => q[0]), ys = poly[0].map(q => q[1]);
+      const x0 = Math.min(...xs) - 3, x1 = Math.max(...xs) + 3, y0 = Math.min(...ys) - 3, y1 = Math.max(...ys) + 3;
+      return ps.some(([la, lo]) => lo >= x0 && lo <= x1 && la >= y0 && la <= y1); };
+    const feats = (geo.features || []).filter(f => count[f.properties.name]).map(f => {
+      const g = f.geometry, polys = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates], ps = pts[f.properties.name] || [];
+      const keep = polys.filter(pl => near(pl, ps));
+      return { type:'Feature', properties:f.properties, geometry:{ type:'MultiPolygon', coordinates:keep.length ? keep : polys } };
+    });
+    const layer = L.geoJSON({ type:'FeatureCollection', features:feats }, {
+      style:f => ({ color:col, weight:1, fillColor:col, fillOpacity:cv === 'all' ? .2 + .6 * count[f.properties.name] / max : .5 }),
+      onEachFeature:(f, l) => l.bindTooltip(`${esc(f.properties.name)} · ${count[f.properties.name]} ship${count[f.properties.name] > 1 ? 's' : ''}`, { sticky:true })
+    }).addTo(m);
+    ships.forEach(x => x.calls.forEach((c, i) => L.circleMarker([c.lat, c.lon], { radius:cv.startsWith('s:') ? 6 : 4, color:'#fff', weight:1.5, fillColor:cv === 'all' ? dotColor(x.v) : col, fillOpacity:1 })
+      .bindTooltip(`${cv.startsWith('s:') ? (i + 1) + '. ' : esc(x.v.id) + ' · '}${esc(c.place)}<br>${esc(fmtTime(c.start))}`, { direction:'top' }).addTo(m)));
+    const allPts = Object.values(pts).flat();
+    if (allPts.length && L.latLngBounds) m.fitBounds(L.latLngBounds(allPts), { padding:[30, 30], maxZoom:cv.startsWith('s:') ? 6 : 5 });
+    const n = Object.keys(count).length;
+    const info = document.createElement('div'); info.className = 'tinfo';
+    // ASEAN (excl. Singapore) / China (incl. Hong Kong, Macao; not Taiwan) / India: IDs in this view that called there
+    const ASEAN = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Thailand', 'Timor-Leste', 'Vietnam'];
+    const aciOf = id => { const ks = [...(perShip[id] || new Map()).keys()]; const a = ks.filter(c => ASEAN.includes(c)); return { a, c:ks.filter(c => ['China', 'Hong Kong', 'Macao'].includes(c)), i:ks.includes('India') }; };
+    const aci = { a:0, c:0, i:0, any:0 }, aciTxt = {};
+    ships.forEach(x => { const h = aciOf(x.v.id); aci.a += h.a.length ? 1 : 0; aci.c += h.c.length ? 1 : 0; aci.i += h.i ? 1 : 0; aci.any += (h.a.length || h.c.length || h.i) ? 1 : 0;
+      aciTxt[x.v.id] = [h.a.join(', '), h.c.join(', '), h.i ? 'India' : ''].filter(Boolean).join(' · '); });
+    const nStud = pick.length, aciTip = `Called at — ASEAN (excl. Singapore): ${aci.a} · China (incl. Hong Kong, Macao): ${aci.c} · India: ${aci.i} · any: ${aci.any} of ${nStud}`;
+    info.innerHTML = `<span>${n} countr${n === 1 ? 'y' : 'ies'} · ${ships.length} ship${ships.length === 1 ? '' : 's'}</span><span title="${esc(aciTip)}">ASEAN ${aci.a} · China ${aci.c} · India ${aci.i} <span style="opacity:.75">&nbsp;of ${nStud}</span></span><button class="hbtn" type="button" aria-expanded="false">List ▾</button>`;
+    p.el.querySelector('.ptool').appendChild(info);
+    const rowsHtml = ships.flatMap(x => [...perShip[x.v.id].entries()].map(([c, e]) => `<tr><td><b>${esc(x.v.id)}</b></td><td>${esc(c)}</td><td>${esc(e.ports.join(', '))}</td><td>${e.calls}</td><td>${esc(fmtH(e.hours))}</td></tr>`)).join('');
+    const aciRows = ships.filter(x => aciTxt[x.v.id]).map(x => `<tr><td><b>${esc(x.v.id)}</b></td><td colspan="4">${esc(aciTxt[x.v.id])}</td></tr>`).join('');
+    const aciHtml = `<div class="sub" style="padding:6px 8px">${esc(aciTip)}. Singapore is not counted as ASEAN; China includes Hong Kong and Macao; Taiwan is not counted.</div>`
+      + (aciRows ? `<table><thead><tr><th>ID</th><th colspan="4">ASEAN · China · India</th></tr></thead><tbody>${aciRows}</tbody></table>` : '');
+    const list = document.createElement('div'); list.className = 'overlay plist'; list.hidden = true;
+    list.innerHTML = (rowsHtml ? `<table><thead><tr><th>ID</th><th>Country</th><th>Ports</th><th>Calls</th><th>In port</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+      : '<div class="sub" style="padding:8px">No port calls in this period.</div>') + aciHtml;
+    if (L.DomEvent) { L.DomEvent.disableClickPropagation(list); L.DomEvent.disableScrollPropagation(list); }
+    body.appendChild(list);
+    const lb = info.querySelector('button');
+    lb.onclick = () => { list.hidden = !list.hidden; lb.setAttribute('aria-expanded', !list.hidden); lb.textContent = list.hidden ? 'List ▾' : 'List ▴'; };
+    if (!ships.length) { const d = document.createElement('div'); d.className = 'overlay'; d.style.cssText = 'left:50%;top:12px;transform:translateX(-50%)'; d.textContent = 'No port calls recorded in this period.'; body.appendChild(d); }
+  }
+
+  // ---------- timeline of tracking periods ----------
+  function drawTimeline(p, body) {
+    p.el.querySelectorAll('.ptool [data-hc]').forEach(b => b.onclick = () => {
+      const c = b.dataset.hc; hiddenCatsTL.has(c) ? hiddenCatsTL.delete(c) : hiddenCatsTL.add(c); saveHiddenTL();
+      P.forEach(q => q.mode === 'timeline' && renderPane(q));
+    });
+    const today = dParse(sgtDate(Date.now()));
+    const segsOf = v => {
+      const segs = [], p = v._p || {};
+      (v._stints || []).filter(s => !isNaN(s.start) && s.start <= today).forEach(s => segs.push({ s:s.start, e:isNaN(s.end) ? today : Math.min(s.end, today), kind:'on', vessel:s.vessel }));
+      if (p.expectedEnd && ['onboard', 'paused', 'upcoming'].includes(p.status)) {
+        const b = p.status !== 'onboard' && p.nextStart ? p.nextStart : Math.max(today, ...segs.filter(x => x.s <= today).map(x => x.e));
+        if (p.expectedEnd > b) segs.push({ s:b, e:p.expectedEnd, kind:'plan' });
+      }
+      return segs;
+    };
+    const list = visible().filter(v => !hiddenCatsTL.has(catOf(v))).map(v => Object.assign(v, { _segs:segsOf(v) })).filter(v => v._segs.length)
+      .sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true }));
+    if (!list.length) { body.innerHTML = `<div class="msg">${hiddenCatsTL.size ? 'No ships to show. Some categories are hidden: click a category above to show it.' : 'No tracking periods (start_date / end_date) in vessels.csv.'}</div>`; return; }
+    const day = 864e5, lo0 = Math.min(...list.flatMap(v => v._segs.map(x => x.s))), hi0 = Math.max(...list.flatMap(v => v._segs.map(x => x.e)));
+    const lo = new Date(lo0), hi = new Date(hi0);
+    const start = Date.UTC(lo.getUTCFullYear(), lo.getUTCMonth(), 1), end = Date.UTC(hi.getUTCFullYear(), hi.getUTCMonth() + 1, 1);
+    const LW = 150, W = Math.max(640, body.clientWidth || 640), RH = 24, TOP = 28, H = TOP + RH * list.length + 10;
+    const x = t => LW + (W - LW - 10) * Math.max(0, Math.min(1, (t - start) / (end - start)));
+    let svg = `<svg class="tl" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Timeline of tracking periods">`;
+    for (let d = new Date(start); d.getTime() < end; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) {
+      const xx = x(d.getTime()), lbl = d.toLocaleDateString('en-SG', { month:'short', ...(d.getUTCMonth() === 0 || d.getTime() === start ? { year:'numeric' } : {}), timeZone:'UTC' });
+      svg += `<line x1="${xx}" y1="${TOP - 8}" x2="${xx}" y2="${H}" class="grid"/><text x="${xx + 3}" y="${TOP - 12}" class="ax">${esc(lbl)}</text>`;
+    }
+    list.forEach((v, i) => {
+      const y = TOP + i * RH, a = period(v);
+      const col = v.category ? catColor(v.category) : css('--none'), sel = v.id === selectedId;
+      const rects = v._segs.map(g => g.kind === 'on'
+        ? `<rect x="${x(g.s)}" y="${y + 4}" width="${Math.max(2, x(g.e + day) - x(g.s))}" height="${RH - 9}" rx="3" fill="${col}" ${sel ? 'stroke="var(--ink)" stroke-width="2"' : ''}><title>${esc(v.id)} ${esc(g.vessel || v.vessel_name)}: on board ${esc(dShort(g.s))} → ${esc(dShort(g.e))}</title></rect>`
+        : `<rect x="${x(g.s)}" y="${y + 4}" width="${Math.max(2, x(g.e) - x(g.s))}" height="${RH - 9}" rx="3" fill="${col}" fill-opacity=".25" stroke="${col}" stroke-dasharray="3 2"><title>${esc(v.id)}: expected to finish ${esc(dShort(g.e))} · ${esc(a.text)}</title></rect>`).join('');
+      svg += `<g class="bar" data-id="${esc(v.id)}" tabindex="0" role="button" aria-label="${esc(v.id)} ${esc(v.vessel_name)} · ${esc(a.text)}">
+        <text x="0" y="${y + 15}" class="lb"><tspan font-weight="700">${esc(v.id)}</tspan> ${esc(v.vessel_name.slice(0, 16))}</text>${rects}</g>`;
+    });
+    const now = Date.now();
+    if (now >= start && now <= end) svg += `<line x1="${x(now)}" y1="${TOP - 8}" x2="${x(now)}" y2="${H}" class="today"/><text x="${x(now) + 3}" y="${H - 2}" class="todayt">today</text>`;
+    body.innerHTML = `<div class="tlwrap">${svg}</svg></div>`;
+    body.querySelectorAll('g.bar').forEach(g => {
+      const go = () => select(g.dataset.id); g.onclick = go; g.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+    });
+  }
+  function refreshAll() { renderTable(); P.forEach(p => p.mode === 'fleet' && renderPane(p)); }
+
+  // ---------- draggable dividers ----------
+  function setupGutters() {
+    const ws = $('ws'), left = $('left');
+    const lay = store.get('layout', { left:56, top:55 });
+    const apply = () => { ws.style.setProperty('--left', lay.left + '%'); left.style.setProperty('--top', lay.top + '%'); };
+    apply();
+    function drag(g, onMove) {
+      const start = e => {
+        e.preventDefault(); g.classList.add('drag'); document.body.style.userSelect = 'none';
+        const move = ev => { const pt = ev.touches ? ev.touches[0] : ev; onMove(pt); apply(); };
+        const up = () => { g.classList.remove('drag'); document.body.style.userSelect = ''; store.set('layout', lay);
+          ['mousemove', 'touchmove'].forEach(t => window.removeEventListener(t, move)); ['mouseup', 'touchend'].forEach(t => window.removeEventListener(t, up)); relayout(); };
+        window.addEventListener('mousemove', move); window.addEventListener('touchmove', move, { passive:false });
+        window.addEventListener('mouseup', up); window.addEventListener('touchend', up);
+      };
+      g.addEventListener('mousedown', start); g.addEventListener('touchstart', start, { passive:false });
+    }
+    drag($('gutV'), pt => { const r = ws.getBoundingClientRect(); lay.left = Math.min(80, Math.max(25, (pt.clientX - r.left) / r.width * 100)); });
+    drag($('gutH'), pt => { const r = left.getBoundingClientRect(); lay.top = Math.min(85, Math.max(15, (pt.clientY - r.top) / r.height * 100)); });
+    const key = (g, prop, step) => g.addEventListener('keydown', e => {
+      const d = { ArrowLeft:-step, ArrowUp:-step, ArrowRight:step, ArrowDown:step }[e.key]; if (!d) return;
+      e.preventDefault(); lay[prop] = Math.min(prop === 'left' ? 80 : 85, Math.max(prop === 'left' ? 25 : 15, lay[prop] + d)); apply(); store.set('layout', lay); relayout();
+    });
+    key($('gutV'), 'left', 2); key($('gutH'), 'top', 3);
+  }
+  let rt;
+  function relayout() {
+    P.forEach(p => {
+      if (p.map) p.map.invalidateSize();
+    });
+  }
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(relayout, 150); });
+  if (window.ResizeObserver) { const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => P.forEach(p => p.map && p.map.invalidateSize()), 60); }); ['pane0', 'pane1'].forEach(id => ro.observe($(id))); }
+
+  // ---------- start ----------
+  async function init() {
+    let csv;
+    // The vessel list is kept locked (vault); a readable copy is used only if there is no locked one yet.
+    try { csv = await getText('vessels.csv'); } catch (e0) { csv = null; }
+    if (csv == null) try { csv = await fetchText('vessels.csv'); }
+    catch (e) { banner('Could not load <b>vessels.csv</b>. Open this page through its GitHub Pages link (https://&lt;username&gt;.github.io/&lt;project&gt;/), not as a file on your computer.'); $('runPill').textContent = 'No data'; return; }
+    // Rows with neither MMSI nor IMO are standby places (no vessel assigned yet): listed, never tracked.
+    // Rows sharing an ID are stints (signed off, then on again, maybe on another vessel).
+    // The current stint (latest started, else first) gives the vessel shown and tracked.
+    const digits = x => String(x || '').replace(/\D/g, ''), byId = new Map(), todayD = dParse(sgtDate(Date.now()));
+    parseCSV(csv).filter(v => v.id).forEach(r => { if (!byId.has(r.id)) byId.set(r.id, []); byId.get(r.id).push(r); });
+    const allRows = [...byId.values()].map(rows => {
+      const stints = rows.map(r => ({ start:dParse(r.start_date), end:dParse(r.end_date), row:r }))
+        .sort((a, b) => (isNaN(a.start) ? Infinity : a.start) - (isNaN(b.start) ? Infinity : b.start));
+      const started = stints.filter(s => !isNaN(s.start) && s.start <= todayD), cur = (started[started.length - 1] || stints[0]).row;
+      const v = Object.assign({}, cur);
+      v._stints = stints.map(s => ({ start:s.start, end:s.end, vessel:s.row.vessel_name }));
+      v._p = periodInfo(v._stints);
+      return v;
+    });
+    standby = allRows.filter(v => !digits(v.mmsi) && !digits(v.imo));
+    vessels = allRows.filter(v => !standby.includes(v));
+    standby.forEach(v => { v.category = (v.category || '').trim(); });
+    let run, reports, send;
+    [latest, run, reports, ports, , send] = await Promise.all([getJSON('data/latest.json', {}), getJSON('data/run_log.json', null),
+      getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || []),
+      getJSON('assets/mid.json', { mid:{} }).then(d => { mids = d.mid || {}; }), getJSON('data/send.json', null)]);
+    setupSend(send);
+    const order = { fresh:0, stale:1, old:2, none:3 };
+    vessels.forEach(v => {
+      const p = latest[v.id] || {};
+      v.category = (v.category || '').trim();
+      if (v.category && !catOrder.includes(v.category)) catOrder.push(v.category);
+      v._state = stateOf(p.last_seen_utc);
+      v._age = p.last_seen_utc ? Date.now() - new Date(p.last_seen_utc).getTime() : Infinity;
+      v._place = p.latitude != null ? placeLabel(p.latitude, p.longitude) : '';
+      v._speed = p.speed_kn ?? -1;
+      v._att = period(v).n;
+    });
+    vessels.sort((a, b) => order[a._state] - order[b._state] || a.id.localeCompare(b.id, undefined, { numeric:true }));
+    standby.forEach(v => { if (v.category && !catOrder.includes(v.category)) catOrder.push(v.category); });
+    defaultCat = latestCat([...new Set(vessels.concat(standby).map(catOf))]);
+    openCats = new Set();          // all categories start closed; click a heading to open
+    selectedId = (vessels.find(v => latest[v.id] && catOf(v) === defaultCat) || vessels.find(v => latest[v.id]) || vessels[0] || {}).id || '';
+
+    if (catOrder.length) {
+      const sel = $('catFilter'); sel.hidden = false;
+      sel.innerHTML = '<option value="">All categories</option>' + catOrder.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('') +
+        (vessels.some(v => !v.category) ? '<option value="__none">No category</option>' : '');
+      sel.onchange = () => { catFilter = sel.value; refreshAll(); };
+    }
+    $('search').addEventListener('input', e => { query = e.target.value; renderTable(); });
+    document.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
+      const k = th.dataset.sort; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; renderTable();
+    });
+
+    renderRun(run); renderChips(); renderReports(reports); renderTable(); setupGutters();
+    getJSON('assets/locode.json', { codes:{} }).then(d => { locode = d.codes || {}; renderTable(); });
+    ['pane0', 'pane1'].forEach((id, i) => { const p = Object.assign({ mode:'fleet', range:'30' }, panes[i] || {}, { ship:'', el:$(id), markers:{} }); if (!MODES[p.mode]) p.mode = 'fleet'; P.push(p); renderPane(p); });
+    const issues = checkRoster(vessels);
+    if (issues.length) banner(`<b>vessels.csv needs checking (${issues.length}):</b> ${issues.slice(0, 6).map(esc).join(' · ')}${issues.length > 6 ? ' …' : ''}`);
+    if (vessels.some(v => /^SAMPLE /i.test(v.vessel_name))) banner('Showing <b>sample vessels</b>. Edit <b>vessels.csv</b> with the real ship names, IMO and MMSI numbers to start tracking.');
+  }
+  start();
+})();
+</script>
+</body>
+</html>
