@@ -78,7 +78,7 @@ def position_rows(fixes_by_id, roster, start=None, end=None):
     return [r[1] for r in rows]
 
 
-POS_HEADER = ["Time (SGT)", "ID", "Vessel", "Category", "Place", "Latitude", "Longitude",
+POS_HEADER = ["Time (SGT)", "Code", "Vessel", "Category", "Place", "Latitude", "Longitude",
               "Speed (kn)", "Status", "Destination (AIS)"]
 
 
@@ -122,7 +122,7 @@ def build_sheets(kind, month=None, ref=None, full_history=True):
         ])
         visit_rows += ctry.xlsx_rows([{"id": v["id"], "name": v["vessel_name"], "cat": v.get("category", ""), "calls": vis}])
     sheets.insert(0, ("Ship summary", [
-        "ID", "Vessel", "Company", "Category", "IMO", "MMSI", "First sign-on", "Expected finish (182 days on board)",
+        "Code", "Vessel", "Company", "Category", "IMO", "MMSI", "First sign-on", "Expected finish (182 days on board)",
         "Progress (days on board)", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
         "Days heard", "Positions in period", "Distance logged (nm)", "Countries visited (port calls, period)",
         "Ports called (period, in order)", "Countries visited (whole period to date)",
@@ -139,7 +139,7 @@ def build_sheets(kind, month=None, ref=None, full_history=True):
                               c["lat"], c["lon"]])
     sheets.append(("Countries visited", ctry.XLSX_HEADER, visit_rows))
     sheets.append(("Port calls", [
-        "ID", "Vessel", "Type", "Place", "Country", "First logged stopped (SGT)", "Last logged stopped (SGT)",
+        "Code", "Vessel", "Type", "Place", "Country", "First logged stopped (SGT)", "Last logged stopped (SGT)",
         "Logged under way again (SGT)", "Stopped at least (h)", "Stopped at most (h)", "Latitude", "Longitude",
     ], calls))
 

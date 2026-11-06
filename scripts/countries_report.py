@@ -127,7 +127,7 @@ def write_xlsx(out_dir, name, ships, aci_all=None, aci_now=None):
     summ = [[s["id"], s["name"], s["cat"], len(ctry.by_country(s["calls"])), len(s["calls"]),
              ", ".join(ctry.country_names(s["calls"]))] for s in ships]
     return wx(os.path.join(out_dir, name), [
-        ("Summary", ["ID", "Vessel", "Category", "Countries", "Port calls", "Countries (in order of first visit)"], summ),
+        ("Summary", ["Code", "Vessel", "Category", "Countries", "Port calls", "Countries (in order of first visit)"], summ),
         ("Countries visited", ctry.XLSX_HEADER, ctry.xlsx_rows(ships)),
         ("ASEAN China India", *ctry.aci_xlsx(aci_all or ships, aci_now))])
 

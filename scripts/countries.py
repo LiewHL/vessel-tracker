@@ -246,7 +246,7 @@ def xlsx_rows(ships):
     return rows
 
 
-XLSX_HEADER = ["ID", "Vessel", "Category", "Country", "Port", "Type", "Arrived (first logged, SGT)",
+XLSX_HEADER = ["Code", "Vessel", "Category", "Country", "Port", "Type", "Arrived (first logged, SGT)",
                "Departed (first logged under way, SGT)", "Time in port (h, approx.)"]
 
 
@@ -328,7 +328,7 @@ def aci_block(ships_all, colours, rank, open_cat="", ships_now=None, now_label="
 
 def aci_xlsx(ships_all, ships_now=None):
     now_by = {s["id"]: aci(s["calls"]) for s in (ships_now or [])}
-    hdr = ["ID", "Vessel", "Category", "ASEAN countries (to date)", "China (to date)", "India (to date)", "Any ACI (to date)"]
+    hdr = ["Code", "Vessel", "Category", "ASEAN countries (to date)", "China (to date)", "India (to date)", "Any ACI (to date)"]
     if ships_now is not None:
         hdr += ["ASEAN countries (period)", "China (period)", "India (period)", "Any ACI (period)"]
     rows = []
