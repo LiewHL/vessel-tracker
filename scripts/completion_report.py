@@ -38,7 +38,7 @@ def main():
     body = completion.section(g, label, category_colours(roster))
     kpis = "".join(f'<div class="kpi"><b>{n}</b><span>{e(t)}</span></div>' for n, t in
                    [(len(g["completed"]), "Completed in range"), (len(g["expected"]), "On board"),
-                    (len(g["paused"]), "Signed off")])
+                    (len(g["paused"]), "Paused")])
     tag = f"{now.astimezone(SGT):%Y-%m-%d-%H%M}"
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

@@ -3,7 +3,7 @@ import html
 from common import REQUIRED_DAYS, completion_date, period_info
 
 HEADER = ["Code", "Vessel", "Category", "Group", "Days on board", "Days left",
-          "Completed on / expected", "Signed off", "Next sign-on"]
+          "Completed on / expected", "Paused since", "Next sign-on"]
 
 
 def gather(roster, start, end, today):
@@ -63,14 +63,14 @@ def section(g, range_label, colours=None, heading="Completion"):
     n_c, n_e, n_p = len(g["completed"]), len(g["expected"]), len(g["paused"])
     return (f'<section><h2>{e(heading)}</h2>'
             f'<p><b>{n_c}</b> completed in {e(range_label)} · <b>{n_e}</b> on board '
-            f'· <b>{n_p}</b> signed off (paused).</p>'
+            f'· <b>{n_p}</b> paused.</p>'
             + grp(f"Completed in {e(range_label)}", n_c, "<th>Code</th><th>Vessel</th><th>Category</th><th>Completed on</th>",
                   rows_c, "None in this period.")
             + grp("Expected completion (still on board, soonest first)", n_e,
                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days on board</th><th class=num>Days left</th>"
                   "<th>Expected</th><th>Progress</th>", rows_e, "No codes on board.")
-            + grp("Signed off (paused)", n_p,
-                  "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Signed off</th><th>Next sign-on</th>",
+            + grp("Paused", n_p,
+                  "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Paused since</th><th>Next sign-on</th>",
                   rows_p, "None.", open_=bool(n_p))
             + '</section>')
 
@@ -82,7 +82,7 @@ def sheet(g):
     for d, v, days in g["expected"]:
         rows.append([v["id"], v["vessel_name"], _cat(v), "On board", days, max(0, (d - g["today"]).days), f"{d:%Y-%m-%d}", "", ""])
     for v, p in g["paused"]:
-        rows.append([v["id"], v["vessel_name"], _cat(v), "Signed off", p["days"], REQUIRED_DAYS - p["days"],
+        rows.append([v["id"], v["vessel_name"], _cat(v), "Paused", p["days"], REQUIRED_DAYS - p["days"],
                      f"{p['expected_end']:%Y-%m-%d}" if p.get("expected_end") else "",
                      f"{p['paused_since']:%Y-%m-%d}" if p.get("paused_since") else "",
                      f"{p['next_start']:%Y-%m-%d}" if p.get("next_start") else ""])
@@ -93,4 +93,4 @@ def summary_lines(g, range_label):
     soon = [x for x in g["expected"] if (x[0] - g["today"]).days <= 30]
     return [f"Completion: {len(g['completed'])} completed in {range_label}; "
             f"{len(g['expected'])} on board ({len(soon)} expected to complete in the next 30 days); "
-            f"{len(g['paused'])} signed off (paused)."]
+            f"{len(g['paused'])} paused."]
