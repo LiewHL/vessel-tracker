@@ -67,8 +67,8 @@ def period_progress(v, today):
     if p["status"] == "upcoming":
         return f"Starts {p['next_start']:%d %b}", 0
     if p["status"] == "paused":
-        return f"Paused since {p['paused_since']:%d %b} · Day {p['days']} of {REQUIRED_DAYS}", pct
-    return f"Day {p['days']} of {REQUIRED_DAYS} · exp. finish {p['expected_end']:%d %b %Y}", pct
+        return f"Paused since {p['paused_since']:%d %b} · Day {p['days']}", pct
+    return f"Day {p['days']} · exp. finish {p['expected_end']:%d %b %Y}", pct
 
 
 def _fnum(v):

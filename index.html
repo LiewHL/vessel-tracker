@@ -532,8 +532,8 @@
     if (p.status === 'nodates') return { text:'', n:0 };
     if (p.status === 'completed') return { text:'Completed', n:2 };
     if (p.status === 'upcoming') return { text:'Starts ' + dShort(p.nextStart), n:-1 };
-    if (p.status === 'paused') return { text:`Paused since ${dShort(p.pausedSince)} · Day ${p.days}/${REQ_DAYS}`, n, paused:true };
-    return { text:`Day ${p.days}/${REQ_DAYS}`, n };
+    if (p.status === 'paused') return { text:`Paused since ${dShort(p.pausedSince)} · Day ${p.days}`, n, paused:true };
+    return { text:`Day ${p.days}`, n };
   }
   function catColor(cat) {
     const i = catOrder.indexOf(cat);
