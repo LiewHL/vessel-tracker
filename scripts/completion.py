@@ -62,7 +62,7 @@ def section(g, range_label, colours=None, heading="Completion"):
 
     n_c, n_e, n_p = len(g["completed"]), len(g["expected"]), len(g["paused"])
     return (f'<section><h2>{e(heading)}</h2>'
-            f'<p><b>{n_c}</b> completed {REQUIRED_DAYS} days on board in {e(range_label)} · <b>{n_e}</b> on board '
+            f'<p><b>{n_c}</b> completed in {e(range_label)} · <b>{n_e}</b> on board '
             f'· <b>{n_p}</b> signed off (paused).</p>'
             + grp(f"Completed in {e(range_label)}", n_c, "<th>Code</th><th>Vessel</th><th>Category</th><th>Completed on</th>",
                   rows_c, "None in this period.")
@@ -72,8 +72,7 @@ def section(g, range_label, colours=None, heading="Completion"):
             + grp("Signed off (paused)", n_p,
                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Signed off</th><th>Next sign-on</th>",
                   rows_p, "None.", open_=bool(n_p))
-            + f'<p class="sub">{REQUIRED_DAYS} days on board are needed; days signed off do not count. Expected dates '
-              'assume the code stays on board.</p></section>')
+            + '</section>')
 
 
 def sheet(g):
@@ -92,6 +91,6 @@ def sheet(g):
 
 def summary_lines(g, range_label):
     soon = [x for x in g["expected"] if (x[0] - g["today"]).days <= 30]
-    return [f"Completion: {len(g['completed'])} completed {REQUIRED_DAYS} days on board in {range_label}; "
+    return [f"Completion: {len(g['completed'])} completed in {range_label}; "
             f"{len(g['expected'])} on board ({len(soon)} expected to complete in the next 30 days); "
             f"{len(g['paused'])} signed off (paused)."]

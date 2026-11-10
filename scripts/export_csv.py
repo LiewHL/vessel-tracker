@@ -110,8 +110,8 @@ def build_sheets(kind, month=None, ref=None, full_history=True):
         ])
         visit_rows += ctry.xlsx_rows([{"id": v["id"], "name": v["vessel_name"], "cat": v.get("category", ""), "calls": vis}])
     sheets.insert(0, ("Ship summary", [
-        "Code", "Vessel", "Company", "Category", "IMO", "MMSI", "First sign-on", "Expected finish (182 days on board)",
-        "Progress (days on board)", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
+        "Code", "Vessel", "Company", "Category", "IMO", "MMSI", "First sign-on", "Expected finish",
+        "Progress (days)", "Last seen (SGT)", "Last place", "Last latitude", "Last longitude",
         "Days heard", "Positions in period", "Distance logged (nm)", "Countries visited (port calls, period)",
         "Ports called (period, in order)", "Countries visited (whole period to date)",
     ], summary))

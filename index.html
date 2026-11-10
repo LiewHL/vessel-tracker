@@ -674,7 +674,7 @@
     const pct = a.n === -1 ? 0 : a.n === 2 ? 100 : Math.round(a.n * 100), p = v._p || {};
     const first = (v._stints || []).find(s => !isNaN(s.start));
     const dates = a.paused ? '' : first ? `${fmtD(new Date(first.start).toISOString().slice(0, 10))} → ${p.expectedEnd ? 'exp. ' + fmtD(new Date(p.expectedEnd).toISOString().slice(0, 10)) : ''}` : '';
-    return `<div class="per ${cls || ''} ${a.n === 2 ? 'done' : ''} ${a.paused ? 'paused' : ''}" title="Time on board (26 weeks = ${REQ_DAYS} days)">
+    return `<div class="per ${cls || ''} ${a.n === 2 ? 'done' : ''} ${a.paused ? 'paused' : ''}" title="Time on board">
       <div class="pt"><span class="pd">${esc(dates)}</span><b>${esc(a.text)}</b></div>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Period progress"><i style="width:${pct}%"></i></div></div>`;
   }
@@ -1096,8 +1096,7 @@
       <h3>Expected completion (on board, soonest first) · ${onb.length}</h3>${table('<th class="num">Days</th><th class="num">Left</th><th>Expected</th><th>Progress</th>',
         onb.map(v => row(v, `<td class="num">${v._p.days}</td><td class="num">${Math.max(0, Math.round((v._p.expectedEnd - today) / DAY))}</td><td>${esc(dShort(v._p.expectedEnd))} ${new Date(v._p.expectedEnd).getUTCFullYear()}</td><td><span class="bar"><i style="width:${pct(v)}%"></i></span>${pct(v)}%</td>`)).join(''), 'No codes on board.')}
       <h3>Signed off (paused) · ${off.length}</h3>${table('<th class="num">Days</th><th>Signed off</th><th>Next sign-on</th>',
-        off.map(v => row(v, `<td class="num">${v._p.days}</td><td>${v._p.pausedSince ? esc(dShort(v._p.pausedSince)) : ''}</td><td>${v._p.nextStart ? esc(dShort(v._p.nextStart)) + (v._p.expectedEnd ? ' (exp. ' + esc(dShort(v._p.expectedEnd)) + ')' : '') : '<span class="sub">not set</span>'}</td>`)).join(''), 'None.')}
-      <div class="sub" style="margin-top:8px">${REQ_DAYS} days on board are needed; days signed off do not count.</div></div>`;
+        off.map(v => row(v, `<td class="num">${v._p.days}</td><td>${v._p.pausedSince ? esc(dShort(v._p.pausedSince)) : ''}</td><td>${v._p.nextStart ? esc(dShort(v._p.nextStart)) + (v._p.expectedEnd ? ' (exp. ' + esc(dShort(v._p.expectedEnd)) + ')' : '') : '<span class="sub">not set</span>'}</td>`)).join(''), 'None.')}</div>`;
     body.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => select(tr.dataset.id));
   }
 

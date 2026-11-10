@@ -237,7 +237,7 @@ def build(kind="weekly", ref=None, month=None):
         lines += ["", "Ships to follow up (no recent position): "
                   + ", ".join(f"{v['id']} ({v['vessel_name']})" for v in follow_up)]
     if kind == "quarterly":
-        lines += ["", f"Completed 182 days on board this quarter: {len(completed)}"]
+        lines += ["", f"Completed this quarter: {len(completed)}"]
         lines += [f"- {v['id']} {v['vessel_name']} ({d:%d %b %Y})" for d, v in completed]
     if soon_end or soon_start:
         lines += ["", "Coming up in the next 14 days:"]
@@ -534,7 +534,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
                          f'<div style="padding:8px 10px">{svg}</div></details>')
         svg = "".join(parts)
         timeline = (f'<section class="tl"><h2>Tracking periods</h2>{svg}<p class="sub">Solid = time on board (each stint); '
-                    f'dashed = expected time still needed to reach 182 days (26 weeks). Colour = category. '
+                    f'dashed = expected time remaining. Colour = category. '
                     f'The shaded band is this {w}; the red line is today.</p></section>')
     side_sections = alerts_section(ctx, w) + coming_up(ctx, kind)
     lower_sections = []
