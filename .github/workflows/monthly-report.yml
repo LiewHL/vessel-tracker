@@ -1,0 +1,167 @@
+name: Monthly report
+
+on:
+  schedule:
+    - cron: "25 23 28-31 * *"
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "Month to report on, YYYY-MM (leave empty for last month)"
+        default: ""
+      source:
+        description: "Leave as 'manual'"
+        default: "manual"
+      email:
+        description: "Email the report? (yes / no)"
+        default: "yes"
+      send_to:
+        description: "Leave empty"
+        default: ""
+      staff:
+        description: "Also email staff copies? (yes / no)"
+        default: "yes"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.event.inputs.send_to && format('request-{0}', github.run_id) || 'vessel-data' }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install cryptography
+        run: pip install --quiet "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12" "openpyxl==3.1.5" "et-xmlfile==2.0.0"
+
+      - name: Unlock the data
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+        run: python scripts/vault.py open
+
+      - name: Get the vessel list (private)
+        env:
+          LIST_KEY: ${{ secrets.LIST_KEY }}
+          LIST_REPO: ${{ vars.LIST_REPO }}
+        run: python scripts/get_list.py
+
+      - name: Send button request?
+        id: req
+        env:
+          SEND_TO: ${{ github.event.inputs.send_to }}
+        run: |
+          if [ -z "$SEND_TO" ]; then echo "go=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if ! [[ "$SEND_TO" =~ ^S[0-9]{1,3}$ ]]; then echo "::error::send_to must look like S3."; exit 1; fi
+          if ! python scripts/due_reports.py request "$SEND_TO"; then
+            echo "::warning::$SEND_TO has already used Send 5 times today, so nothing was sent."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          cp reports/index.json "$RUNNER_TEMP/index.bak" 2>/dev/null || echo "[]" > "$RUNNER_TEMP/index.bak"
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+      - name: Is the report still due?
+        id: due
+        if: steps.req.outputs.go == 'true'
+        env:
+          TIMED: ${{ github.event_name == 'schedule' || github.event.inputs.source == 'auto' }}
+        run: |
+          if [ "$TIMED" = "true" ] && ! python scripts/due_reports.py check monthly; then
+            echo "::notice::Monthly report already made; nothing to do."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the monthly report
+        if: steps.due.outputs.go == 'true'
+        id: build
+        env:
+          MONTH: ${{ github.event.inputs.month }}
+        run: |
+          if [ -n "$MONTH" ]; then
+            python scripts/weekly_report.py --monthly --month "$MONTH" > "$RUNNER_TEMP/summary.json"
+          else
+            python scripts/weekly_report.py --monthly > "$RUNNER_TEMP/summary.json"
+          fi
+          echo "file=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['file'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+          echo "period=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+          echo "date=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['date'])" "$RUNNER_TEMP/summary.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Email the monthly report (private - recipients and login are GitHub secrets)
+        id: mail
+        if: steps.due.outputs.go == 'true' && github.event.inputs.email != 'no'
+        env:
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SEND_TO: ${{ github.event.inputs.send_to }}
+          STAFF_EMAILS: ${{ secrets.STAFF_EMAILS }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          SITE="https://${OWNER,,}.github.io/${REPO}"
+          FILE="${{ steps.build.outputs.file }}"
+          set +e
+          python scripts/send_email.py reports/latest-monthly-summary.md "reports/$FILE" "Monthly vessel report: ${{ steps.build.outputs.period }}" "$SITE/" ""
+          rc=$?
+          if [ $rc -eq 0 ]; then echo "sent=yes" >> "$GITHUB_OUTPUT"; fi
+          if [ $rc -eq 3 ]; then echo "::warning::No email sent (secrets not set, or no allowed recipients). Nothing was kept."; exit 0; fi
+          exit $rc
+
+      - name: Log the report as sent
+        if: steps.mail.outputs.sent == 'yes'
+        env:
+          SEND_TO: ${{ github.event.inputs.send_to }}
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+          VAULT_COMPACT: "1"
+        run: |
+          if [ -n "$SEND_TO" ]; then
+            python scripts/sent_log.py monthly "${{ steps.build.outputs.date }}" --request "$SEND_TO" --backup "$RUNNER_TEMP/index.bak"
+          else
+            python scripts/sent_log.py monthly "${{ steps.build.outputs.date }}"
+          fi
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python scripts/vault.py seal
+          git add -A vault
+          git diff --cached --quiet || git commit -q -m "Monthly report sent ${{ steps.build.outputs.period }}"
+          for i in 1 2 3; do
+            git pull --rebase --quiet && git push --quiet && break
+            sleep 5
+          done
+
+      - name: Email each staff member their own codes
+        if: steps.mail.outputs.sent == 'yes' && github.event.inputs.send_to == '' && github.event.inputs.staff != 'no'
+        continue-on-error: true
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          STAFF_EMAILS: ${{ secrets.STAFF_EMAILS }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          SITE="https://${OWNER,,}.github.io/${REPO}"
+          n=0
+          for S in $(python scripts/staff_list.py); do
+            ONLY_STAFF=$S python scripts/weekly_report.py --monthly --month "${{ github.event.inputs.month }}" > "$RUNNER_TEMP/s-$S.json" || continue
+            FILE=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['file'])" "$RUNNER_TEMP/s-$S.json")
+            PERIOD=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/s-$S.json")
+            MD=$(ls reports/latest-*summary-$S.md | head -1)
+            if python scripts/send_email.py "$MD" "reports/$FILE" "Monthly vessel report: $PERIOD" "$SITE/" "" --to "$S"; then n=$((n+1)); fi
+            rm -f "reports/$FILE" "$MD"
+          done
+          echo "Staff copies sent: $n"

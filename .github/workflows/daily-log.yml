@@ -1,0 +1,148 @@
+name: Daily position log
+
+on:
+  schedule:
+    - cron: "25 * * * *"
+  workflow_dispatch:
+    inputs:
+      listen_minutes:
+        description: "Minutes to listen for ships"
+        default: "15"
+      source:
+        description: "Leave as 'manual'"
+        default: "manual"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: vessel-data
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Skip if the logger ran recently (timed starts only)
+        id: guard
+        env:
+          TIMED: ${{ github.event_name == 'schedule' || github.event.inputs.source == 'cron' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          run = "true"
+          if os.environ.get("TIMED") == "true":
+              try:
+                  last = json.load(open("data/status.json"))["last_run_utc"]
+                  age = (datetime.now(timezone.utc) - datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)).total_seconds() / 60
+                  if age < 40:
+                      run = "false"
+                      print(f"::notice::Skipped: the logger already ran {age:.0f} minutes ago.", flush=True)
+              except Exception:
+                  pass
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"run={run}\n")
+          PY
+
+  log:
+    needs: check
+    if: needs.check.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install websockets and cryptography
+        run: |
+          pip install --quiet "websockets==17.3" "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12"
+
+      - name: Unlock the data
+        id: open
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+        run: python scripts/vault.py open
+
+      - name: Get the vessel list (private)
+        if: steps.open.outcome == 'success'
+        env:
+          LIST_KEY: ${{ secrets.LIST_KEY }}
+          LIST_REPO: ${{ vars.LIST_REPO }}
+        run: python scripts/get_list.py
+
+      - name: Listen for ships and log positions
+        env:
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          LISTEN_MINUTES: ${{ github.event.inputs.listen_minutes || '15' }}
+          RUN_TRIGGER: ${{ github.event.inputs.source == 'cron' && 'cron' || github.event_name }}
+          SCHEDULE_MINUTE: ${{ github.event.inputs.source == 'cron' && '0' || '25' }}
+          SCHEDULE_EVERY_H: "1"
+        run: python scripts/log_positions.py
+
+      - name: Check for alerts
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        env:
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          STAFF_EMAILS: ${{ secrets.STAFF_EMAILS }}
+        run: python scripts/alerts.py
+
+      - name: Lock and save the log to the project
+        if: always() && steps.open.outcome == 'success'
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+          SEND_KEY: ${{ secrets.SEND_KEY }}
+          SEND_REPO: ${{ vars.SEND_REPO }}
+        run: |
+          python scripts/send_key.py || echo "::warning::Send key not updated."
+          python scripts/sent_log.py --tidy || echo "::warning::Sent log not tidied."
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python scripts/vault.py seal
+          git add -A data; [ -d vault ] && git add -A vault
+          if git diff --cached --quiet; then
+            echo "Nothing new to save."
+            exit 0
+          fi
+          git commit -q -m "Daily position log $(date -u +%Y-%m-%d)"
+          for i in 1 2 3; do
+            git pull --rebase --quiet && git push --quiet && exit 0
+            sleep 5
+          done
+          echo "::error::Could not save the log to the project (push failed 3 times)."
+          exit 1
+
+      - name: Start reports that are due
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          kind=$(python scripts/due_reports.py list | awk '{print $1}')
+          if [ -n "$kind" ]; then
+            echo "::notice::Starting the $kind report."
+            gh workflow run "$kind-report.yml" -f source=auto
+            exit 0
+          fi
+          id=$(python scripts/countries_report.py --due | awk '{print $1}')
+          if [ -n "$id" ]; then
+            echo "::notice::Starting an end-of-period summary."
+            gh workflow run countries-report.yml -f period_end="$id"
+          fi
