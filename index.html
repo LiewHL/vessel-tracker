@@ -1095,7 +1095,7 @@
       <h3>Completed ${esc(label)} · ${done.length}</h3>${table('<th>Completed on</th>', done.map(x => row(x.v, `<td>${esc(dShort(x.d))} ${new Date(x.d).getUTCFullYear()}</td>`)).join(''), 'None in this range.')}
       <h3>Expected completion (on board, soonest first) · ${onb.length}</h3>${table('<th class="num">Days</th><th class="num">Left</th><th>Expected</th><th>Progress</th>',
         onb.map(v => row(v, `<td class="num">${v._p.days}</td><td class="num">${Math.max(0, Math.round((v._p.expectedEnd - today) / DAY))}</td><td>${esc(dShort(v._p.expectedEnd))} ${new Date(v._p.expectedEnd).getUTCFullYear()}</td><td><span class="bar"><i style="width:${pct(v)}%"></i></span>${pct(v)}%</td>`)).join(''), 'No codes on board.')}
-      <h3>Paused · ${off.length}</h3>${table('<th class="num">Days</th><th>Paused since</th><th>Next sign-on</th>',
+      <h3>Paused · ${off.length}</h3>${table('<th class="num">Days</th><th>Paused since</th><th>Resumes</th>',
         off.map(v => row(v, `<td class="num">${v._p.days}</td><td>${v._p.pausedSince ? esc(dShort(v._p.pausedSince)) : ''}</td><td>${v._p.nextStart ? esc(dShort(v._p.nextStart)) + (v._p.expectedEnd ? ' (exp. ' + esc(dShort(v._p.expectedEnd)) + ')' : '') : '<span class="sub">not set</span>'}</td>`)).join(''), 'None.')}</div>`;
     body.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => select(tr.dataset.id));
   }

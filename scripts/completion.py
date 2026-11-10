@@ -3,7 +3,7 @@ import html
 from common import REQUIRED_DAYS, completion_date, period_info
 
 HEADER = ["Code", "Vessel", "Category", "Group", "Days on board", "Days left",
-          "Completed on / expected", "Paused since", "Next sign-on"]
+          "Completed on / expected", "Paused since", "Resumes"]
 
 
 def gather(roster, start, end, today):
@@ -70,7 +70,7 @@ def section(g, range_label, colours=None, heading="Completion"):
                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days on board</th><th class=num>Days left</th>"
                   "<th>Expected</th><th>Progress</th>", rows_e, "No codes on board.")
             + grp("Paused", n_p,
-                  "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Paused since</th><th>Next sign-on</th>",
+                  "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Paused since</th><th>Resumes</th>",
                   rows_p, "None.", open_=bool(n_p))
             + '</section>')
 

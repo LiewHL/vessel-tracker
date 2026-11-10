@@ -65,7 +65,7 @@ def check(path=ROSTER):
             continue
         lines = ", ".join(str(n) for n, *_ in stints)
         if any(not has_start for *_, has_start in stints):
-            problems.append(f"{vid} (lines {lines}): each stint needs a start_date (sign-on date).")
+            problems.append(f"{vid} (lines {lines}): each stint needs a start_date.")
             continue
         stints = sorted((x for x in stints if x[1]), key=lambda x: x[1])
         for (n1, s1, e1, _), (n2, s2, e2, _) in zip(stints, stints[1:]):

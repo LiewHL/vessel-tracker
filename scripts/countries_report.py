@@ -200,7 +200,7 @@ def period_end(a):
     body = ('<div class="cols"><section><h2>Map</h2>' + ctry.map_block(ships, colours) + '</section><div>'
             f'<section><h2>Period</h2><p><b>{html.escape(v["id"])}</b> · {html.escape(v.get("category", ""))}<br>'
             f'Vessel{"s" if len(vessels) > 1 else ""}: {"; ".join(vessels)}<br>'
-            f'Signed on {first:%d %b %Y} · completed {done:%d %b %Y}<br>'
+            f'Started {first:%d %b %Y} · completed {done:%d %b %Y}<br>'
             f'{html.escape(ctry.aci_line(s["calls"]))}</p></section>'
             '<section><h2>Countries</h2>' + ctry.ship_table(ships, colours, category_rank) + '</section>'
             '<section><h2>All port calls</h2><div class="tablewrap"><table class="small"><thead><tr><th>Arrived</th><th>Port</th>'
@@ -211,7 +211,7 @@ def period_end(a):
              "period": f"{v['id']} {v['vessel_name']} · {first:%d %b %Y} – {done:%d %b %Y}",
              "tracked": 1, "countries": len(bc), "generated": ref.strftime("%Y-%m-%dT%H:%M:%SZ")}
     md = [f"End-of-period summary: {v['id']} {v['vessel_name']} ({v.get('category', '')}).", "",
-          f"- Signed on {first:%d %b %Y}; completed {done:%d %b %Y}",
+          f"- Started {first:%d %b %Y}; completed {done:%d %b %Y}",
           f"- Countries visited (port calls): {len(bc)}" + (f" — {', '.join(bc)}" if bc else ""),
           f"- Port calls: {len(s['calls'])}",
           f"- {ctry.aci_line(s['calls'])} (Singapore not counted as ASEAN; China includes Hong Kong and Macao; Taiwan not counted)", "",
