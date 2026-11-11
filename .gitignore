@@ -10,6 +10,7 @@ data/alerts_log.json
 data/send.json
 data/crisis.json
 data/weather.json
+data/waves.json
 vessels.csv
 reports/*.html
 reports/*.md

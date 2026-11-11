@@ -553,8 +553,9 @@
   function tiles(map) {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom:12, attribution:'Tiles © Esri — Esri, HERE, Garmin, USGS, NGA, and other contributors' }).addTo(map);
   }
-  let wx = {}, layersOn = store.get('layers', { crisis:false, rain:false, clouds:false }), radarP = null, crisisP = null;
+  let wx = {}, layersOn = store.get('layers', { crisis:false, rain:false, clouds:false, waves:false }), radarP = null, crisisP = null, wavesP = null;
   const LAYERS = [['crisis', 'Crisis', 'Risk areas and current storms, earthquakes, tsunamis, volcanoes, floods (GDACS)'],
+                  ['waves', 'Waves', 'Wave height now (NOAA WaveWatch III): light blue calm · green 3 m · yellow 4 m · red 6 m+'],
                   ['rain', 'Rain', 'Rain radar, last 10 minutes (RainViewer)'], ['clouds', 'Clouds', 'Satellite view, yesterday (NASA)']];
   const layerButtons = () => `<div class="seg" role="group" aria-label="Map layers">${LAYERS.map(([k, l, t]) => `<button data-l="${k}" title="${t}" class="${layersOn[k] ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const compass = d => d == null ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((d % 360) + 360) % 360 / 45) % 8];
@@ -566,12 +567,34 @@
     if (long && (w.max24_wind_kn != null || w.max24_wave_m != null)) parts.push(`next 24 h up to ${[w.max24_wave_m != null ? w.max24_wave_m.toFixed(1) + ' m' : '', w.max24_wind_kn != null ? Math.round(w.max24_wind_kn) + ' kn' : ''].filter(Boolean).join(' / ')}`);
     return parts.join(' · ');
   }
+  function wxChart(id) {
+    const sr = (wx[id] || {}).series; if (!sr || !sr.wave) return '';
+    const W = 300, H = 120, L0 = 30, R0 = 30, T0 = 8, B0 = 18, n = 48, pw = W - L0 - R0, ph = H - T0 - B0;
+    const waves = sr.wave, wind = sr.wind || [], gust = sr.gust || [];
+    const wmax = Math.max(7, ...waves.filter(x => x != null)) * 1.1, kmax = Math.max(55, ...wind.filter(x => x != null), ...gust.filter(x => x != null)) * 1.05;
+    const X = i => L0 + pw * i / (n - 1), Yw = v => T0 + ph * (1 - v / wmax), Yk = v => T0 + ph * (1 - v / kmax);
+    const path = (arr, Y) => { let d = '', pen = false; arr.forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; pen = true; }); return d; };
+    const ticks = [0, 12, 24, 36, 47].map(i => `<text x="${X(i)}" y="${H - 4}" text-anchor="middle">${i === 0 ? 'now' : '+' + i + 'h'}</text>`).join('');
+    return `<h4>Next 48 hours at the ship</h4><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W * 1.3}px;font-size:9px" role="img" aria-label="Wave height and wind forecast">
+      <g fill="var(--muted)"><text x="2" y="${T0 + 6}">${Math.round(wmax)} m</text><text x="2" y="${T0 + ph}">0</text><text x="${W - 2}" y="${T0 + 6}" text-anchor="end">${Math.round(kmax)} kn</text>${ticks}</g>
+      <line x1="${L0}" x2="${W - R0}" y1="${Yw(6)}" y2="${Yw(6)}" stroke="#c0392b" stroke-dasharray="3 3" stroke-width="1"/><text x="${L0 + 2}" y="${Yw(6) - 2}" fill="#c0392b">6 m</text>
+      <line x1="${L0}" x2="${W - R0}" y1="${Yk(48)}" y2="${Yk(48)}" stroke="#8e44ad" stroke-dasharray="1 3" stroke-width="1"/><text x="${W - R0 - 2}" y="${Yk(48) - 2}" fill="#8e44ad" text-anchor="end">48 kn</text>
+      <rect x="${L0}" y="${T0}" width="${pw}" height="${ph}" fill="none" stroke="var(--line)"/>
+      <path d="${path(gust, Yk)}" fill="none" stroke="#8e44ad" stroke-width="1" stroke-dasharray="2 2" opacity=".6"/>
+      <path d="${path(wind, Yk)}" fill="none" stroke="#8e44ad" stroke-width="1.5"/>
+      <path d="${path(waves, Yw)}" fill="none" stroke="#1f6fb2" stroke-width="2"/></svg>
+      <div class="sub"><span style="color:#1f6fb2">━</span> waves (m, left) · <span style="color:#8e44ad">━</span> wind, <span style="color:#8e44ad">┅</span> gusts (kn, right) · from ${esc(fmtTime(sr.start))} SGT</div>`;
+  }
   const windyUrl = q => `https://www.windy.com/?${(+q.latitude).toFixed(3)},${(+q.longitude).toFixed(3)},7`;
   async function addLayers(m) {
     if (layersOn.clouds) {
       const d = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
       L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/${d}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
         { maxNativeZoom:9, maxZoom:12, opacity:0.55, attribution:'Satellite: NASA GIBS' }).addTo(m);
+    }
+    if (layersOn.waves) {
+      const d = await (wavesP || (wavesP = getJSON('data/waves.json', null)));
+      if (d && d.png) L.imageOverlay('data:image/png;base64,' + d.png, [[-d.lat_max, -180], [d.lat_max, 180]], { opacity:0.6, interactive:false, attribution:'Waves: NOAA WaveWatch III' }).addTo(m);
     }
     if (layersOn.rain) {
       try {
@@ -1041,6 +1064,7 @@
       <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>
       ${periodHTML(v, a)}
       <table class="kv">${rowsKV.map(([k, x]) => `<tr><th>${esc(k)}</th><td>${esc(x)}</td></tr>`).join('')}</table>
+      ${wxChart(v.id)}
       ${q.latitude != null ? `<div><a href="${windyUrl(q)}" target="_blank" rel="noopener">Weather at the ship ↗</a> <span class="sub">(Windy)</span></div>` : ''}
       <h4>Countries visited (port calls, whole period)</h4><div>${countries.length ? countries.map(c => `<span class="pchip">${esc(c)}</span>`).join('') : '<span class="sub">None yet</span>'}</div>
       <h4>Recent port calls / stops</h4>
