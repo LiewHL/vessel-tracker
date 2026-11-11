@@ -102,6 +102,11 @@
   .cm { display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:4px; font:700 10px/1 system-ui,sans-serif; color:#fff; border:1.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3); }
   .cm.b { background:#0b5c8c; } .cm.a { background:#c98a00; } .cm.o { background:#6250d6; }
   .tlwrap { position:absolute; inset:0; overflow:auto; padding:8px 10px; }
+  .wlegend { position:absolute; left:10px; bottom:22px; z-index:500; background:var(--card); color:var(--ink); border:1px solid var(--line);
+             border-radius:8px; padding:5px 8px 3px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.15); pointer-events:none; }
+  .wlegend .wbar { width:150px; height:8px; border-radius:4px; margin:3px 0 1px;
+    background:linear-gradient(90deg, rgb(198,233,247) 0%, rgb(120,198,230) 12.5%, rgb(65,160,210) 25%, rgb(90,190,120) 37.5%, rgb(240,210,70) 50%, rgb(240,150,50) 62.5%, rgb(220,70,50) 75%, rgb(150,30,90) 100%); }
+  .wlegend .wlab { display:flex; justify-content:space-between; width:150px; color:var(--muted); }
   .cmpwrap { position:absolute; inset:0; overflow:auto; padding:8px 12px; font-size:13px; }
   .cmpwrap h3 { font-size:13px; margin:12px 0 4px; } .cmpwrap h3:first-child { margin-top:2px; }
   .cmpwrap table { border-collapse:collapse; width:100%; }
@@ -905,7 +910,10 @@
     const el = document.createElement('div'); el.className = 'lmap'; body.appendChild(el);
     if (!window.L) { body.innerHTML = '<div class="msg">Map could not load.</div>'; return null; }
     const m = L.map(el, { worldCopyJump:true, zoomControl:true }).setView([15, 100], 3); tiles(m); p.map = m;
-    if (p.mode === 'fleet' || p.mode === 'route') addLayers(m);
+    if (p.mode === 'fleet' || p.mode === 'route') {
+      addLayers(m);
+      if (layersOn.waves) el.insertAdjacentHTML('beforeend', '<div class="wlegend" aria-label="Wave height legend"><b>Wave height</b><div class="wbar"></div><div class="wlab"><span>0</span><span>2</span><span>4</span><span>6</span><span>8+ m</span></div></div>');
+    }
     return m;
   }
   function drawFleet(p, body) {
