@@ -15,6 +15,9 @@ import notify
 STATE = os.path.join(DATA_DIR, "alerts_state.json")
 LOG = os.path.join(DATA_DIR, "alerts_log.json")
 QUIET_DAYS = 7
+WEATHER = os.path.join(DATA_DIR, "weather.json")
+ROUGH_WAVE_M = 6.0
+ROUGH_WIND_KN = 48.0
 GDACS_URL = ("https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
              "?eventlist=TC&alertlevel=Green;Orange;Red")
 
@@ -57,6 +60,7 @@ def main():
     areas, cfg = load_areas()
     storm_nm = float(cfg.get("storm_distance_nm", 300))
     storms = fetch_storms()
+    wx = read_json(WEATHER, {}).get("ships", {})
     alerts = []
 
     for v in roster:
@@ -108,6 +112,17 @@ def main():
                     lvl = f" ({st['level']} alert)" if st["level"] else ""
                     alerts.append(("Storm nearby", name, f"{name} is about {d:.0f} nm from tropical cyclone "
                                    f"{st['name']}{lvl}. Ship position {where}, {sgt(seen)}. Details: {st['url']}"))
+        w = wx.get(v["id"]) or {}
+        wave, wnd = w.get("max24_wave_m"), w.get("max24_wind_kn")
+        rough = (wave is not None and wave >= ROUGH_WAVE_M) or (wnd is not None and wnd >= ROUGH_WIND_KN)
+        last = parse_iso(s.get("rough"))
+        if rough and age_days <= 2 and (last is None or now - last >= timedelta(hours=24)):
+            s["rough"] = iso(now)
+            parts = [f"waves up to {wave:.1f} m" if wave is not None else "", f"wind up to {wnd:.0f} kn" if wnd is not None else ""]
+            alerts.append(("Rough weather", name, f"{name}: forecast {' and '.join(p for p in parts if p)} in the next 24 h "
+                           f"near its last position {where}, {sgt(seen)}."))
+        elif not rough and s.get("rough") and last and now - last >= timedelta(hours=24):
+            s.pop("rough", None)
         s["storms"] = {k: t for k, t in s["storms"].items()
                        if (parse_iso(t) or now) > now - timedelta(days=30)}
         s["seen"] = q.get("last_seen_utc")
@@ -117,7 +132,7 @@ def main():
         for kind, ship, text in alerts:
             log.append({"t": iso(now), "kind": kind, "ship": ship.split(" ")[0], "text": text})
         write_json(LOG, log[-2000:])
-        order = ["Entered risk area", "Storm nearby", "Gone quiet", "Left risk area", "Back in contact"]
+        order = ["Entered risk area", "Storm nearby", "Rough weather", "Gone quiet", "Left risk area", "Back in contact"]
         lines = []
         for kind in order + sorted({k for k, _, _ in alerts} - set(order)):
             items = [t for k, _, t in alerts if k == kind]

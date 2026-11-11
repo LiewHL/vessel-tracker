@@ -8,6 +8,8 @@ data/run_log.json
 data/alerts_state.json
 data/alerts_log.json
 data/send.json
+data/crisis.json
+data/weather.json
 vessels.csv
 reports/*.html
 reports/*.md

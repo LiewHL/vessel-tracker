@@ -18,7 +18,7 @@ APPEND_ONLY = {"data/positions.csv"}
 
 def protected_paths():
     fixed = ["data/positions.csv", "data/latest.json", "data/run_log.json", "reports/index.json",
-             "data/alerts_state.json", "data/alerts_log.json", "data/send.json",
+             "data/alerts_state.json", "data/alerts_log.json", "data/send.json", "data/crisis.json", "data/weather.json",
              "vessels.csv"]
     return sorted(fixed)
 

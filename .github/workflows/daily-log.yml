@@ -92,6 +92,11 @@ jobs:
           SCHEDULE_EVERY_H: "1"
         run: python scripts/log_positions.py
 
+      - name: Weather and crisis events
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        run: python scripts/environment.py
+
       - name: Check for alerts
         if: steps.open.outcome == 'success'
         continue-on-error: true

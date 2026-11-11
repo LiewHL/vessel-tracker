@@ -553,6 +553,47 @@
   function tiles(map) {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom:12, attribution:'Tiles © Esri — Esri, HERE, Garmin, USGS, NGA, and other contributors' }).addTo(map);
   }
+  let wx = {}, layersOn = store.get('layers', { crisis:false, rain:false, clouds:false }), radarP = null, crisisP = null;
+  const LAYERS = [['crisis', 'Crisis', 'Risk areas and current storms, earthquakes, tsunamis, volcanoes, floods (GDACS)'],
+                  ['rain', 'Rain', 'Rain radar, last 10 minutes (RainViewer)'], ['clouds', 'Clouds', 'Satellite view, yesterday (NASA)']];
+  const layerButtons = () => `<div class="seg" role="group" aria-label="Map layers">${LAYERS.map(([k, l, t]) => `<button data-l="${k}" title="${t}" class="${layersOn[k] ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const compass = d => d == null ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((d % 360) + 360) % 360 / 45) % 8];
+  function wxText(id, long) {
+    const w = wx[id]; if (!w) return '';
+    const parts = [];
+    if (w.wind_kn != null) parts.push(`Wind ${Math.round(w.wind_kn)} kn ${compass(w.wind_dir)}${long && w.gust_kn != null ? ` (gusts ${Math.round(w.gust_kn)})` : ''}`);
+    if (w.wave_m != null) parts.push(`Waves ${w.wave_m.toFixed(1)} m`);
+    if (long && (w.max24_wind_kn != null || w.max24_wave_m != null)) parts.push(`next 24 h up to ${[w.max24_wave_m != null ? w.max24_wave_m.toFixed(1) + ' m' : '', w.max24_wind_kn != null ? Math.round(w.max24_wind_kn) + ' kn' : ''].filter(Boolean).join(' / ')}`);
+    return parts.join(' · ');
+  }
+  const windyUrl = q => `https://www.windy.com/?${(+q.latitude).toFixed(3)},${(+q.longitude).toFixed(3)},7`;
+  async function addLayers(m) {
+    if (layersOn.clouds) {
+      const d = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+      L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/${d}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+        { maxNativeZoom:9, maxZoom:12, opacity:0.55, attribution:'Satellite: NASA GIBS' }).addTo(m);
+    }
+    if (layersOn.rain) {
+      try {
+        const r = await (radarP || (radarP = fetch('https://api.rainviewer.com/public/weather-maps.json').then(x => x.json())));
+        const f = ((r.radar || {}).past || []).slice(-1)[0];
+        if (f) L.tileLayer(`${r.host}${f.path}/256/{z}/{x}/{y}/2/1_0.png`, { maxNativeZoom:7, maxZoom:12, opacity:0.75, attribution:'Radar: RainViewer' }).addTo(m);
+      } catch (e) { radarP = null; }
+    }
+    if (layersOn.crisis) {
+      const [areas, cr] = await (crisisP || (crisisP = Promise.all([fetch('config/risk_areas.json').then(x => x.json()).catch(() => ({ areas:[] })), getJSON('data/crisis.json', { events:[] })])));
+      (areas.areas || []).filter(a => a.active !== false && (a.polygon || []).length > 2).forEach(a =>
+        L.polygon(a.polygon, { color:'#c0392b', weight:1.5, dashArray:'5 4', fillColor:'#c0392b', fillOpacity:0.08, interactive:true })
+          .bindTooltip(`<b>${esc(a.name)}</b>${a.note ? '<br>' + esc(a.note) : ''}`, { sticky:true }).addTo(m));
+      const lvl = { Red:'#c0392b', Orange:'#e67e22', Green:'#27ae60' }, nm = +(areas.storm_distance_nm || 300);
+      (cr.events || []).forEach(ev => {
+        const c = lvl[ev.level] || '#7f8c8d', tip = `<b>${esc(ev.kind)}: ${esc(ev.name)}</b>${ev.level ? ` · ${esc(ev.level)} alert` : ''}${ev.country ? '<br>' + esc(ev.country) : ''}<br><span class="sub">GDACS · click for details</span>`;
+        if (ev.type === 'TC') L.circle([ev.lat, ev.lon], { radius:nm * 1852, color:c, weight:1, dashArray:'4 4', fillOpacity:0.05, interactive:false }).addTo(m);
+        L.circleMarker([ev.lat, ev.lon], { radius:7, color:'#fff', weight:2, fillColor:c, fillOpacity:1 }).bindTooltip(tip, { direction:'top' })
+          .on('click', () => window.open(ev.url, '_blank', 'noopener')).addTo(m);
+      });
+    }
+  }
 
 
 
@@ -693,7 +734,7 @@
             ${status ? `<div class="sub show-s">${esc(status)}</div>` : ''}</td>
         <td class="hide-s sub">${esc(status) || '—'}</td>
         <td class="hide-s">${periodHTML(v, a) || '<span class="sub">—</span>'}</td>
-        <td>${v.imo ? `<a class="vf" href="https://www.vesselfinder.com/vessels/details/${encodeURIComponent(v.imo)}" target="_blank" rel="noopener" title="Open in VesselFinder" aria-label="Open ${esc(v.vessel_name)} in VesselFinder">↗</a>` : ''}</td>
+        <td>${v.imo ? `<a class="vf" href="https://www.vesselfinder.com/vessels/details/${encodeURIComponent(v.imo)}" target="_blank" rel="noopener" title="Open in VesselFinder" aria-label="Open ${esc(v.vessel_name)} in VesselFinder">↗</a>` : ''}${p.latitude != null ? ` <a class="vf" href="${windyUrl(p)}" target="_blank" rel="noopener" title="Weather at the ship (Windy)" aria-label="Weather at ${esc(v.vessel_name)}">☁</a>` : ''}</td>
       </tr>`;
   }
   function renderTable() {
@@ -778,7 +819,7 @@
     if (p.mode === 'fleet') {
       tools += `<div class="seg" role="group" aria-label="Colour by"><button data-c="status" class="${colourBy === 'status' ? 'on' : ''}">Last seen</button>${catOrder.length ? `<button data-c="category" class="${colourBy === 'category' ? 'on' : ''}">Category</button>` : ''}<button data-c="ship" class="${colourBy === 'ship' ? 'on' : ''}">Ship</button></div>`;
       tools += `<div class="seg" role="group" aria-label="Tracks (last 7 days)" title="Tracks for the last 7 days"><button data-t="all" class="${tracksMode === 'all' ? 'on' : ''}">All tracks</button><button data-t="sel" class="${tracksMode === 'sel' ? 'on' : ''}">Selected</button></div>`;
-      tools += `<button class="hbtn" data-act="fit">Fit all</button>`;
+      tools += layerButtons() + `<button class="hbtn" data-act="fit">Fit all</button>`;
     } else if (p.mode === 'timeline') {
       tools += `<div class="tinfo" aria-label="Categories">${catChips(hiddenCatsTL, 'timeline')}</div>`;
     } else if (p.mode === 'countries') {
@@ -800,6 +841,7 @@
           const today = sgtDate(Date.now());
           tools += `<input type="date" class="from" aria-label="From" value="${p.from || sgtDate(Date.now() - 30 * 864e5)}" max="${today}"><input type="date" class="to" aria-label="To" value="${p.to || today}" max="${today}">`;
         }
+        tools += layerButtons();
       }
     }
     p.el.innerHTML = `<div class="ptool">${tools}</div><div class="pbody"></div>`;
@@ -818,6 +860,7 @@
     p.el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { p.range = b.dataset.r; save(); renderPane(p); });
     p.el.querySelectorAll('.from,.to').forEach(i => i.onchange = () => { p.from = p.el.querySelector('.from').value; p.to = p.el.querySelector('.to').value; save(); renderPane(p); });
     const fit = p.el.querySelector('[data-act=fit]'); if (fit) fit.onclick = () => fitFleet(p);
+    p.el.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { layersOn[b.dataset.l] = !layersOn[b.dataset.l]; store.set('layers', layersOn); P.forEach(q => (q.mode === 'fleet' || q.mode === 'route') && renderPane(q)); });
 
     if (p.mode === 'fleet') return drawFleet(p, body);
     if (p.mode === 'timeline') return drawTimeline(p, body);
@@ -838,7 +881,9 @@
   function newMap(p, body) {
     const el = document.createElement('div'); el.className = 'lmap'; body.appendChild(el);
     if (!window.L) { body.innerHTML = '<div class="msg">Map could not load.</div>'; return null; }
-    const m = L.map(el, { worldCopyJump:true, zoomControl:true }).setView([15, 100], 3); tiles(m); p.map = m; return m;
+    const m = L.map(el, { worldCopyJump:true, zoomControl:true }).setView([15, 100], 3); tiles(m); p.map = m;
+    if (p.mode === 'fleet' || p.mode === 'route') addLayers(m);
+    return m;
   }
   function drawFleet(p, body) {
     const m = newMap(p, body); if (!m) return;
@@ -846,7 +891,7 @@
     visible().forEach(v => {
       const q = latest[v.id]; if (!q || q.latitude == null || hiddenCats.has(catOf(v))) return;
       p.markers[v.id] = L.circleMarker([q.latitude, q.longitude], { radius:v.id === selectedId ? 9 : 7, color:'#fff', weight:2, fillColor:dotColor(v), fillOpacity:1 })
-        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}<br>${esc(fmtTime(q.last_seen_utc))} SGT (${esc(age(q.last_seen_utc))})<br>Ship time ~${esc(shipTime(q.longitude))}`, { direction:'top' })
+        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}<br>${esc(fmtTime(q.last_seen_utc))} SGT (${esc(age(q.last_seen_utc))})<br>Ship time ~${esc(shipTime(q.longitude))}${wxText(v.id) ? '<br>' + esc(wxText(v.id)) : ''}`, { direction:'top' })
         .on('click', () => select(v.id)).addTo(m);
     });
     const leg = document.createElement('div'); leg.className = 'tinfo'; leg.setAttribute('aria-label', 'Legend');
@@ -988,6 +1033,7 @@
       ['Next port', (d => d.raw ? d.next + (d.from ? ' (from ' + d.from + ')' : '') + (d.next !== d.raw ? ' · AIS: ' + d.raw : '') : '')(destination(q.destination))], ['ETA (AIS)', q.eta],
       ['Last seen', q.last_seen_utc ? `${fmtTime(q.last_seen_utc)} SGT (${age(q.last_seen_utc)})` : 'none'],
       ['Ship time', q.longitude != null ? `~${shipTime(q.longitude)}` : ''],
+      ['Weather', wxText(v.id, true)],
     ].filter(([, x]) => x);
     const countries = [...byCountry(visitsOf(v, all)).keys()];
     const recent = portCalls(all).slice(-6).reverse();
@@ -995,6 +1041,7 @@
       <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>
       ${periodHTML(v, a)}
       <table class="kv">${rowsKV.map(([k, x]) => `<tr><th>${esc(k)}</th><td>${esc(x)}</td></tr>`).join('')}</table>
+      ${q.latitude != null ? `<div><a href="${windyUrl(q)}" target="_blank" rel="noopener">Weather at the ship ↗</a> <span class="sub">(Windy)</span></div>` : ''}
       <h4>Countries visited (port calls, whole period)</h4><div>${countries.length ? countries.map(c => `<span class="pchip">${esc(c)}</span>`).join('') : '<span class="sub">None yet</span>'}</div>
       <h4>Recent port calls / stops</h4>
       ${recent.length ? `<table class="kv calls">${recent.map(c => `<tr><th>${esc(c.kind)}</th><td>${esc(c.place)}<div class="sub">${esc(fmtTime(c.start))} → ${c.departed ? esc(fmtTime(c.departed)) : 'still there'} · ${esc(stayText(c))}</div></td></tr>`).join('')}</table>` : '<div class="sub">None detected yet</div>'}
@@ -1199,6 +1246,7 @@
     vessels = allRows.filter(v => !standby.includes(v));
     standby.forEach(v => { v.category = (v.category || '').trim(); });
     let run, reports, send;
+    getJSON('data/weather.json', { ships:{} }).then(d => { wx = d.ships || {}; }).catch(() => {});
     [latest, run, reports, ports, , send] = await Promise.all([getJSON('data/latest.json', {}), getJSON('data/run_log.json', null),
       getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || []),
       getJSON('assets/mid.json', { mid:{} }).then(d => { mids = d.mid || {}; }), getJSON('data/send.json', null)]);
