@@ -144,22 +144,28 @@ def _png(w, h, rows):
             + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
 
-RAMP = [(0.0, (198, 233, 247)), (1.0, (120, 198, 230)), (2.0, (65, 160, 210)), (3.0, (90, 190, 120)),
-        (4.0, (240, 210, 70)), (5.0, (240, 150, 50)), (6.0, (220, 70, 50)), (8.0, (150, 30, 90)), (12.0, (90, 20, 110))]
+RAMP_V = 2
+RAMP = [(0.0, 0), (1.0, 25), (2.0, 50), (3.0, 75), (4.0, 100), (5.0, 125), (6.0, 150), (8.0, 175), (12.0, 190)]
 
 
 def _colour(v):
+    """Grey shading (no hue, so ship colours stay distinct): clear when calm, darker as waves rise."""
     for (a, ca), (b, cb) in zip(RAMP, RAMP[1:]):
         if v <= b:
             f = 0 if b == a else max(0.0, (v - a) / (b - a))
-            return tuple(round(x + (y - x) * f) for x, y in zip(ca, cb))
-    return RAMP[-1][1]
+            alpha = round(ca + (cb - ca) * f)
+            break
+    else:
+        alpha = RAMP[-1][1]
+    grey = round(90 - 60 * min(1.0, v / 8))
+    return (grey, grey + 4, grey + 10, alpha)
 
 
 def waves(now):
     """Current wave-height field (NOAA WaveWatch III, 1-degree) as a small Mercator PNG for the map."""
-    prev = parse_iso(read_json(WAVES, {}).get("t"))
-    if prev and now - prev < timedelta(hours=3) - timedelta(minutes=10):
+    old = read_json(WAVES, {})
+    prev = parse_iso(old.get("t"))
+    if prev and old.get("v") == RAMP_V and now - prev < timedelta(hours=3) - timedelta(minutes=10):
         return
     t = now.replace(minute=0, second=0, microsecond=0)
     data, err = None, ""
@@ -206,10 +212,10 @@ def waves(now):
             if v is None:
                 row += b"\x00\x00\x00\x00"
             else:
-                row += bytes(_colour(v)) + bytes([200])
+                row += bytes(_colour(v))
         rows.append(bytes(row))
     png = _png(W, H, rows)
-    write_json(WAVES, {"t": iso(now), "model_time": when, "lat_max": LAT_MAX, "png": base64.b64encode(png).decode("ascii")})
+    write_json(WAVES, {"t": iso(now), "v": RAMP_V, "model_time": when, "lat_max": LAT_MAX, "png": base64.b64encode(png).decode("ascii")})
     print(f"Waves map: updated ({len(png) // 1024} KB).")
 
 
