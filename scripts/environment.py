@@ -10,8 +10,7 @@ from common import DATA_DIR, LATEST, iso, now_utc, parse_iso, read_json, write_j
 
 CRISIS = os.path.join(DATA_DIR, "crisis.json")
 WEATHER = os.path.join(DATA_DIR, "weather.json")
-GDACS = ("https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
-         "?eventlist=TC;EQ;TS;VO;FL&alertlevel=Green;Orange;Red")
+GDACS = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist={t}&alertlevel={lv}"
 TYPES = {"TC": "Tropical cyclone", "EQ": "Earthquake", "TS": "Tsunami", "VO": "Volcano", "FL": "Flood"}
 MAX_AGE_H = 48
 
@@ -23,13 +22,21 @@ def get(url, timeout=30):
 
 
 def crisis(now):
-    try:
-        data = get(GDACS)
-    except Exception as exc:
-        print(f"Crisis events: not updated ({type(exc).__name__}).")
+    feats, failed, counts = [], 0, {}
+    for t in TYPES:
+        try:
+            data = get(GDACS.format(t=t, lv="Green;Orange;Red" if t == "TC" else "Orange;Red"))
+            fs = data.get("features", []) if isinstance(data, dict) else []
+            counts[t] = len(fs)
+            feats += fs
+        except Exception as exc:
+            failed += 1
+            counts[t] = type(exc).__name__
+    if failed == len(TYPES):
+        print(f"Crisis events: not updated ({counts}).")
         return
     out = []
-    for f in data.get("features", []):
+    for f in feats:
         p = f.get("properties") or {}
         if str(p.get("iscurrent", "")).lower() != "true":
             continue
@@ -46,7 +53,7 @@ def crisis(now):
                     "country": p.get("country", ""),
                     "url": f"https://www.gdacs.org/report.aspx?eventtype={t}&eventid={eid}"})
     write_json(CRISIS, {"t": iso(now), "events": out})
-    print(f"Crisis events: {len(out)} current.")
+    print(f"Crisis events: {len(out)} current (fetched {counts}).")
 
 
 def weather(now):
