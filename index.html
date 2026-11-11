@@ -103,6 +103,12 @@
   .cm.b { background:#0b5c8c; } .cm.a { background:#c98a00; } .cm.o { background:#6250d6; }
   .tlwrap { position:absolute; inset:0; overflow:auto; padding:8px 10px; }
   .evicon { background:none; border:0; }
+  .ptool .fbtn { margin-left:auto; }
+  body.focus header, body.focus .banner { display:none !important; }
+  body.focus .left { grid-template-rows:minmax(0, 1fr) !important; }
+  body.focus .left > .pane:not(.focused), body.focus #gutH { display:none !important; }
+  body.focus .ws { grid-template-columns:var(--fleft, 70%) 6px minmax(0, 1fr); }
+  @media (max-width: 900px) { body.focus .left > .pane.focused { height:calc(100vh - 8px); } }
   .wlegend { position:absolute; left:10px; bottom:22px; z-index:500; background:var(--card); color:var(--ink); border:1px solid var(--line);
              border-radius:8px; padding:5px 8px 3px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.15); pointer-events:none; }
   .wlegend .wbar { width:150px; height:8px; border-radius:4px; margin:3px 0 1px;
@@ -851,6 +857,20 @@
   function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to, cat:p.cat || '', cview:p.cview || 'all', crange:p.crange || 'att', comp:p.comp || 'm', cfrom:p.cfrom || '', cto:p.cto || '' }))); }
   function destroy(p) { if (p.map) { p.map.remove(); p.map = null; } p.markers = {}; }
 
+  let focusPane = null;
+  function setFocus(p, fromHistory) {
+    const was = focusPane;
+    focusPane = p;
+    document.body.classList.toggle('focus', !!p);
+    P.forEach(q => q.el.classList.toggle('focused', q === p));
+    if (p && !was && !fromHistory) { try { history.pushState({ vtFocus:1 }, ''); } catch (e) {} }
+    if (!p && was && !fromHistory && history.state && history.state.vtFocus) { try { history.back(); } catch (e) {} }
+    P.forEach(q => { if (q === p || q === was) renderPane(q); });
+    if (p) p.el.scrollIntoView({ block:'start' });
+  }
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && focusPane && !e.target.closest('input,select,textarea')) setFocus(null); });
+  window.addEventListener('popstate', () => { if (focusPane) setFocus(null, true); });
+
   function renderPane(p) {
     destroy(p);
     const ship = shipById(selectedId);
@@ -884,7 +904,9 @@
         tools += layerButtons();
       }
     }
+    tools += `<button class="hbtn fbtn" data-act="focus" type="button" title="${focusPane === p ? 'Exit focus (Esc)' : 'Focus: fill the window with this panel'}" aria-pressed="${focusPane === p}">${focusPane === p ? '⛶ Exit' : '⛶'}</button>`;
     p.el.innerHTML = `<div class="ptool">${tools}</div><div class="pbody"></div>`;
+    p.el.querySelector('[data-act=focus]').onclick = () => setFocus(focusPane === p ? null : p);
     const body = p.el.querySelector('.pbody');
     p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
     const shipSel = p.el.querySelector('.ship');
