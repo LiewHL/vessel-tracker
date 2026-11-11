@@ -66,7 +66,9 @@
   .gutter.v { cursor:col-resize; } .gutter.h { cursor:row-resize; }
   .gutter::after { content:""; position:absolute; inset:-4px; }
   .pane { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); }
-  .ptool { display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
+  .phd { display:flex; align-items:flex-start; border-bottom:1px solid var(--line); }
+  .phd > .fbtn { flex:none; margin:6px 10px 6px 0; }
+  .ptool { flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding:6px 10px; }
   .ptool select, .ptool input[type=date] { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 6px; max-width:100%; }
   .ptool .mode { font-weight:600; }
   .pbody { flex:1 1 auto; min-height:0; position:relative; }
@@ -103,7 +105,6 @@
   .cm.b { background:#0b5c8c; } .cm.a { background:#c98a00; } .cm.o { background:#6250d6; }
   .tlwrap { position:absolute; inset:0; overflow:auto; padding:8px 10px; }
   .evicon { background:none; border:0; }
-  .ptool .fbtn { margin-left:auto; }
   body.focus header, body.focus .banner { display:none !important; }
   body.focus .left { grid-template-rows:minmax(0, 1fr) !important; }
   body.focus .left > .pane:not(.focused), body.focus #gutH { display:none !important; }
@@ -904,8 +905,8 @@
         tools += layerButtons();
       }
     }
-    tools += `<button class="hbtn fbtn" data-act="focus" type="button" title="${focusPane === p ? 'Exit focus (Esc)' : 'Focus: fill the window with this panel'}" aria-pressed="${focusPane === p}">${focusPane === p ? '⛶ Exit' : '⛶'}</button>`;
-    p.el.innerHTML = `<div class="ptool">${tools}</div><div class="pbody"></div>`;
+    const fbtn = `<button class="hbtn fbtn" data-act="focus" type="button" title="${focusPane === p ? 'Exit focus (Esc)' : 'Focus: fill the window with this panel'}" aria-pressed="${focusPane === p}">${focusPane === p ? '⛶ Exit' : '⛶'}</button>`;
+    p.el.innerHTML = `<div class="phd"><div class="ptool">${tools}</div>${fbtn}</div><div class="pbody"></div>`;
     p.el.querySelector('[data-act=focus]').onclick = () => setFocus(focusPane === p ? null : p);
     const body = p.el.querySelector('.pbody');
     p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
