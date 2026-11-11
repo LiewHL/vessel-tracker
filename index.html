@@ -102,6 +102,7 @@
   .cm { display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; border-radius:4px; font:700 10px/1 system-ui,sans-serif; color:#fff; border:1.5px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3); }
   .cm.b { background:#0b5c8c; } .cm.a { background:#c98a00; } .cm.o { background:#6250d6; }
   .tlwrap { position:absolute; inset:0; overflow:auto; padding:8px 10px; }
+  .evicon { background:none; border:0; }
   .wlegend { position:absolute; left:10px; bottom:22px; z-index:500; background:var(--card); color:var(--ink); border:1px solid var(--line);
              border-radius:8px; padding:5px 8px 3px; font-size:11px; box-shadow:0 1px 4px rgba(0,0,0,.15); pointer-events:none; }
   .wlegend .wbar { width:150px; height:8px; border-radius:4px; margin:3px 0 1px;
@@ -591,6 +592,17 @@
       <div class="sub"><span style="color:#1f6fb2">━</span> waves (m, left) · <span style="color:#8e44ad">━</span> wind, <span style="color:#8e44ad">┅</span> gusts (kn, right) · from ${esc(fmtTime(sr.start))} SGT</div>`;
   }
   const windyUrl = q => `https://www.windy.com/?${(+q.latitude).toFixed(3)},${(+q.longitude).toFixed(3)},7`;
+  // Event symbols (shape differs from round ship dots; colour = GDACS alert level)
+  function evSymbol(type, c) {
+    const P = {
+      TC:'<path d="M0,-3 C7,-11 15,-3 12,5"/><path d="M0,3 C-7,11 -15,3 -12,-5"/>',
+      EQ:'<path d="M-13,2 L-8,-6 L-3,7 L2,-8 L7,6 L13,-2"/>',
+      TS:'<path d="M-13,3 C-9,-5 -4,-5 -1,1 C2,7 7,7 13,-3"/><path d="M-13,9 C-8,5 -3,5 1,9"/>',
+      VO:'<path d="M-11,9 L0,-10 L11,9 Z"/>',
+      FL:'<path d="M0,-11 C5,-3 9,1 9,5 A9,9 0 0 1 -9,5 C-9,1 -5,-3 0,-11 Z"/>' }[type] || '<path d="M0,-9 L9,0 L0,9 L-9,0 Z"/>';
+    const dot = type === 'TC' ? `<circle r="4.5" fill="${c}" stroke="#fff" stroke-width="1.5"/>` : '';
+    return `<svg width="34" height="34" viewBox="-17 -17 34 34" style="overflow:visible;cursor:pointer"><g stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round">${P}</g><g stroke="${c}" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round">${P}</g>${dot}</svg>`;
+  }
   async function addLayers(m) {
     if (layersOn.clouds) {
       const d = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
@@ -617,8 +629,8 @@
       (cr.events || []).forEach(ev => {
         const c = lvl[ev.level] || '#7f8c8d', tip = `<b>${esc(ev.kind)}: ${esc(ev.name)}</b>${ev.level ? ` · ${esc(ev.level)} alert` : ''}${ev.country ? '<br>' + esc(ev.country) : ''}<br><span class="sub">GDACS · click for details</span>`;
         if (ev.type === 'TC') L.circle([ev.lat, ev.lon], { radius:nm * 1852, color:c, weight:1, dashArray:'4 4', fillOpacity:0.05, interactive:false }).addTo(m);
-        L.circleMarker([ev.lat, ev.lon], { radius:7, color:'#fff', weight:2, fillColor:c, fillOpacity:1 }).bindTooltip(tip, { direction:'top' })
-          .on('click', () => window.open(ev.url, '_blank', 'noopener')).addTo(m);
+        L.marker([ev.lat, ev.lon], { icon:L.divIcon({ className:'evicon', html:evSymbol(ev.type, c), iconSize:[34, 34], iconAnchor:[17, 17] }), keyboard:false })
+          .bindTooltip(tip, { direction:'top', offset:[0, -12] }).on('click', () => window.open(ev.url, '_blank', 'noopener')).addTo(m);
       });
     }
   }
