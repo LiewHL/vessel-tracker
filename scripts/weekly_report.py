@@ -94,6 +94,30 @@ def load_fixes(positions):
     return by_id
 
 
+_SR = None
+
+
+def track_parts(fixes):
+    """Heard stretches (g=0) and gaps over 6 h (g=1, estimated sea route) of a track."""
+    global _SR
+    if _SR is None:
+        _SR = read_json(os.path.join(DATA_DIR, "searoutes.json"), {}).get("routes", {})
+    parts, cur = [], []
+    for i, f in enumerate(fixes):
+        a = fixes[i - 1] if i else None
+        if a and (f["t"] - a["t"]).total_seconds() > 6 * 3600 and haversine_nm(a["lat"], a["lon"], f["lat"], f["lon"]) >= 20:
+            if cur:
+                parts.append({"g": 0, "p": cur})
+            k = f"{a['lat']:.3f},{a['lon']:.3f}|{f['lat']:.3f},{f['lon']:.3f}"
+            parts.append({"g": 1, "p": _SR.get(k) or [[a["lat"], a["lon"]], [f["lat"], f["lon"]]]})
+            cur = [[f["lat"], f["lon"]]]
+        else:
+            cur.append([f["lat"], f["lon"]])
+    if cur:
+        parts.append({"g": 0, "p": cur})
+    return parts
+
+
 def period_bounds(kind, ref, month=None):
     if kind == "weekly":
         start = ref - timedelta(days=7)
@@ -407,6 +431,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
                 "cat": (v.get("category") or "").strip() or "No category",
                 "lat": last["lat"], "lon": last["lon"],
                 "track": [[f["lat"], f["lon"]] for f in r["track"]],
+                "parts": track_parts(r["track"]),
             })
         motion = []
         if has_pos and last.get("nav_status"):
@@ -692,11 +717,15 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     const pts = [], byId = {{}};
     ships.forEach(s => {{
       const label = s.id + ' · ' + s.name;
-      const line = s.track.length > 1 ? L.polyline(s.track, {{color:colOf(s), weight:2.5, opacity:.75}}).bindTooltip(label, {{sticky:true}}).addTo(map) : null;
+      const lines = s.track.length > 1 ? s.parts.filter(x => x.p.length > 1).map(x => {{
+        const l = L.polyline(x.p, x.g ? {{color:colOf(s), weight:2, opacity:.6, dashArray:'6 6'}} : {{color:colOf(s), weight:2.5, opacity:.75}})
+          .bindTooltip(label + (x.g ? ' · estimated route (not heard)' : ''), {{sticky:true}}).addTo(map);
+        l._gap = !!x.g; return l;
+      }}) : [];
       const extras = [];
       if (s.track.length > 1) {{
         const legs = [];
-        for (let i = 1; i < s.track.length; i++) if (nm(s.track[i - 1], s.track[i]) > 20) legs.push([s.track[i - 1], s.track[i]]);
+        s.parts.forEach(x => {{ for (let i = 1; i < x.p.length; i++) if (nm(x.p[i - 1], x.p[i]) > 20) legs.push([x.p[i - 1], x.p[i]]); }});
         const step = Math.max(1, Math.ceil(legs.length / 8));
         legs.filter((_, i) => i % step === 0).forEach(([a, b]) => extras.push({{kind:'arrow', deg:angle(a, b),
           l:L.marker([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], {{icon:L.divIcon({{className:'arrowmk', iconSize:[14,14], iconAnchor:[7,7], html:arrowHTML(angle(a, b), colOf(s))}}), interactive:false, keyboard:false}}).addTo(map)}}));
@@ -704,8 +733,8 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
       }}
       const mk = L.circleMarker([s.lat, s.lon], {{radius:7, color:'#fff', weight:2, fillColor:colOf(s), fillOpacity:1}})
         .bindTooltip(s.id + ' · ' + s.name, {{permanent:ships.length <= 12, direction:'right', offset:[8,0]}}).addTo(map);
-      byId[s.id] = {{s, mk, line, extras}};
-      [mk, line].concat(extras.map(x => x.l)).forEach(l => l && l.on && l.on('click', e => {{ L.DomEvent.stopPropagation(e); select(s.id); }}));
+      byId[s.id] = {{s, mk, lines, extras}};
+      [mk].concat(lines, extras.map(x => x.l)).forEach(l => l && l.on && l.on('click', e => {{ L.DomEvent.stopPropagation(e); select(s.id); }}));
       pts.push([s.lat, s.lon]);
       s.track.forEach(p => pts.push(p));
     }});
@@ -716,14 +745,15 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
       const showTrack = !hiddenCat && (tracksMode === 'all' || o.s.id === selId);
       const on = !selId || o.s.id === selId;
       o.mk.setStyle({{fillColor:col, fillOpacity:on ? 1 : .35, opacity:on ? 1 : .35}}); o.mk.setRadius(o.s.id === selId ? 11 : 7);
-      const parts = [o.line].concat(o.extras.map(x => x.l)).filter(Boolean);
+      const parts = o.lines.concat(o.extras.map(x => x.l));
       parts.forEach(l => {{ if (showTrack) l.addTo(map); else map.removeLayer(l); }});
-      if (o.line) o.line.setStyle({{color:col, opacity:on ? (o.s.id === selId ? 1 : .75) : .12, weight:o.s.id === selId ? 4.5 : 2.5}});
+      o.lines.forEach(l => l.setStyle(l._gap ? {{color:col, opacity:on ? (o.s.id === selId ? .85 : .6) : .1, weight:o.s.id === selId ? 3.5 : 2}}
+                                             : {{color:col, opacity:on ? (o.s.id === selId ? 1 : .75) : .12, weight:o.s.id === selId ? 4.5 : 2.5}}));
       o.extras.forEach(x => {{
         if (x.kind === 'arrow') {{ x.l.setIcon(L.divIcon({{className:'arrowmk', iconSize:[14,14], iconAnchor:[7,7], html:arrowHTML(x.deg, col)}})); x.l.setOpacity(on ? 1 : .15); }}
         else x.l.setStyle({{color:col, opacity:on ? 1 : .2, fillOpacity:on ? 1 : .2}});
       }});
-      if (o.s.id === selId) {{ if (o.line && showTrack) o.line.bringToFront(); o.mk.bringToFront(); }}
+      if (o.s.id === selId) {{ if (showTrack) o.lines.forEach(l => l.bringToFront()); o.mk.bringToFront(); }}
     }});
     const select = id => {{ selId = id; apply(); }};
     map.on('click', () => {{ selId = null; document.querySelectorAll('details.ship.hl').forEach(t => t.classList.remove('hl')); apply(); }});

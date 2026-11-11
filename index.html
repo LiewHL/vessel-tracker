@@ -986,13 +986,35 @@
     let dl = b[1] - a[1]; dl = ((dl + 540) % 360) - 180;
     return Math.atan2(dl * Math.PI / 180, mercY(b[0]) - mercY(a[0])) * 180 / Math.PI;
   }
-  function trackLayers(m, pts, col, label, onClick) {
-    const layers = [];
+  // Heard positions are joined solid; a gap of more than 6 h (ship out of AIS range) is drawn dashed along
+  // an estimated sea route (computed by the hourly job), so lines don't cut across land.
+  let SR = {};
+  const GAP_MS = 6 * 3600e3;
+  function trackParts(fx) {
+    const parts = []; let cur = [];
+    fx.forEach((f, i) => {
+      const a = fx[i - 1];
+      if (a && f.t - a.t > GAP_MS && nm(a.lat, a.lon, f.lat, f.lon) >= 20) {
+        if (cur.length) parts.push({ g:false, p:cur });
+        const k = `${a.lat.toFixed(3)},${a.lon.toFixed(3)}|${f.lat.toFixed(3)},${f.lon.toFixed(3)}`;
+        parts.push({ g:true, p:SR[k] || [[a.lat, a.lon], [f.lat, f.lon]] });
+        cur = [[f.lat, f.lon]];
+      } else cur.push([f.lat, f.lon]);
+    });
+    if (cur.length) parts.push({ g:false, p:cur });
+    return parts;
+  }
+  function trackLayers(m, parts, col, label, onClick) {
+    const layers = [], pts = parts.flatMap(x => x.p);
     if (pts.length > 1) {
-      const line = L.polyline(pts, { color:col, weight:2.5, opacity:.75 }).bindTooltip(label, { sticky:true });
-      layers.push(line);
+      parts.forEach(x => {
+        if (x.p.length < 2) return;
+        const line = x.g ? L.polyline(x.p, { color:col, weight:2, opacity:.6, dashArray:'6 6' }).bindTooltip(label + ' · estimated route (not heard)', { sticky:true })
+                         : L.polyline(x.p, { color:col, weight:2.5, opacity:.75 }).bindTooltip(label, { sticky:true });
+        line._gap = x.g; layers.push(line);
+      });
       const legs = [];
-      for (let i = 1; i < pts.length; i++) { const d = nm(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); if (d > 20) legs.push([pts[i - 1], pts[i], d]); }
+      parts.forEach(x => { for (let i = 1; i < x.p.length; i++) { const a = x.p[i - 1], b = x.p[i], d = nm(a[0], a[1], b[0], b[1]); if (d > 20) legs.push([a, b, d]); } });
       const step = Math.max(1, Math.ceil(legs.length / 8));
       legs.filter((_, i) => i % step === 0).forEach(([a, b]) => {
         const icon = L.divIcon({ className:'arrowmk', iconSize:[14, 14], iconAnchor:[7, 7],
@@ -1012,9 +1034,10 @@
     Object.keys(p.markers).forEach(id => {
       if (tracksMode === 'sel' && id !== selectedId) return;
       const v = shipById(id), q = latest[id];
-      const pts = shipFixes(rows, id).filter(f => f.t >= from).map(f => [f.lat, f.lon]);
-      if (!pts.length || pts[pts.length - 1][0] !== q.latitude || pts[pts.length - 1][1] !== q.longitude) pts.push([q.latitude, q.longitude]);
-      p.tracks[id] = trackLayers(m, pts, dotColor(v), `${v.id} · ${v.vessel_name}`, () => select(id));
+      const fx = shipFixes(rows, id).filter(f => f.t >= from && !isNaN(f.lat));
+      const lf = fx[fx.length - 1];
+      if (!lf || lf.lat !== q.latitude || lf.lon !== q.longitude) fx.push({ t:Date.parse(q.last_seen_utc) || Date.now(), lat:q.latitude, lon:q.longitude });
+      p.tracks[id] = trackLayers(m, trackParts(fx), dotColor(v), `${v.id} · ${v.vessel_name}`, () => select(id));
     });
     Object.values(p.markers).forEach(mk => mk.bringToFront());
     highlightFleet(p, p.hl || null);
@@ -1025,7 +1048,7 @@
       const on = !id || k === id;
       mk.setStyle({ fillOpacity:on ? 1 : .35, opacity:on ? 1 : .35 }); mk.setRadius(k === id ? 9 : 7);
       (p.tracks && p.tracks[k] || []).forEach(l => {
-        if (l.setStyle && l.getLatLngs) l.setStyle({ opacity:on ? (k === id ? 1 : .75) : .12, weight:k === id ? 4.5 : 2.5 });
+        if (l.setStyle && l.getLatLngs) l.setStyle(l._gap ? { opacity:on ? (k === id ? .85 : .6) : .1, weight:k === id ? 3.5 : 2 } : { opacity:on ? (k === id ? 1 : .75) : .12, weight:k === id ? 4.5 : 2.5 });
         else if (l.setStyle) l.setStyle({ opacity:on ? 1 : .2, fillOpacity:on ? 1 : .2 });
         else if (l.setOpacity) l.setOpacity(on ? 1 : .15);
       });
@@ -1059,7 +1082,7 @@
     const visited = []; visitsOf(ship, all).filter(c => c.end >= from && c.start <= to).forEach(c => { if (c.place && !visited.includes(c.place)) visited.push(c.place); });
     const m = newMap(p, body); if (!m) return;
     const col = ship.category ? catColor(ship.category) : css('--accent'), pts = fx.map(f => [f.lat, f.lon]);
-    if (pts.length > 1) trackLayers(m, pts, col, `${ship.id} · ${ship.vessel_name}`);
+    if (pts.length > 1) trackLayers(m, trackParts(fx), col, `${ship.id} · ${ship.vessel_name}`);
     fx.forEach((f, i) => {
       const last = i === fx.length - 1;
       L.circleMarker([f.lat, f.lon], { radius:last ? 8 : 4, color:'#fff', weight:last ? 2 : 1, fillColor:col, fillOpacity:1 })
@@ -1313,6 +1336,7 @@
     standby.forEach(v => { v.category = (v.category || '').trim(); });
     let run, reports, send;
     getJSON('data/weather.json', { ships:{} }).then(d => { wx = d.ships || {}; }).catch(() => {});
+    getJSON('data/searoutes.json', { routes:{} }).then(d => { SR = d.routes || {}; P.forEach(q => (q.mode === 'fleet' || q.mode === 'route') && renderPane(q)); }).catch(() => {});
     [latest, run, reports, ports, , send] = await Promise.all([getJSON('data/latest.json', {}), getJSON('data/run_log.json', null),
       getJSON('reports/index.json', []), getJSON('assets/ports.json', { ports:[] }).then(d => d.ports || []),
       getJSON('assets/mid.json', { mid:{} }).then(d => { mids = d.mid || {}; }), getJSON('data/send.json', null)]);

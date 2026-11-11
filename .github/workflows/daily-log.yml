@@ -68,7 +68,7 @@ jobs:
 
       - name: Install websockets and cryptography
         run: |
-          pip install --quiet "websockets==17.3" "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12"
+          pip install --quiet "websockets==17.3" "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12" "searoute==1.6.0" "geojson==3.2.0" "networkx==3.4.2"
 
       - name: Unlock the data
         id: open
@@ -96,6 +96,11 @@ jobs:
         if: steps.open.outcome == 'success'
         continue-on-error: true
         run: python scripts/environment.py
+
+      - name: Sea routes for gaps
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        run: python scripts/searoutes.py
 
       - name: Check for alerts
         if: steps.open.outcome == 'success'
