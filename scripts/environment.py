@@ -144,21 +144,17 @@ def _png(w, h, rows):
             + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
 
-RAMP_V = 2
-RAMP = [(0.0, 0), (1.0, 25), (2.0, 50), (3.0, 75), (4.0, 100), (5.0, 125), (6.0, 150), (8.0, 175), (12.0, 190)]
+RAMP_V = 3
+RAMP = [(0.0, (198, 233, 247)), (1.0, (120, 198, 230)), (2.0, (65, 160, 210)), (3.0, (90, 190, 120)),
+        (4.0, (240, 210, 70)), (5.0, (240, 150, 50)), (6.0, (220, 70, 50)), (8.0, (150, 30, 90)), (12.0, (90, 20, 110))]
 
 
 def _colour(v):
-    """Grey shading (no hue, so ship colours stay distinct): clear when calm, darker as waves rise."""
     for (a, ca), (b, cb) in zip(RAMP, RAMP[1:]):
         if v <= b:
             f = 0 if b == a else max(0.0, (v - a) / (b - a))
-            alpha = round(ca + (cb - ca) * f)
-            break
-    else:
-        alpha = RAMP[-1][1]
-    grey = round(90 - 60 * min(1.0, v / 8))
-    return (grey, grey + 4, grey + 10, alpha)
+            return tuple(round(x + (y - x) * f) for x, y in zip(ca, cb)) + (200,)
+    return RAMP[-1][1] + (200,)
 
 
 def waves(now):

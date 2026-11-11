@@ -555,7 +555,7 @@
   }
   let wx = {}, layersOn = store.get('layers', { crisis:false, rain:false, clouds:false, waves:false }), radarP = null, crisisP = null, wavesP = null;
   const LAYERS = [['crisis', 'Crisis', 'Risk areas and current storms, earthquakes, tsunamis, volcanoes, floods (GDACS)'],
-                  ['waves', 'Waves', 'Wave height now (NOAA WaveWatch III): clear = calm, darker grey = higher waves, near-black = 6 m+'],
+                  ['waves', 'Waves', 'Wave height now (NOAA WaveWatch III): light blue calm · green 3 m · yellow 4 m · red 6 m+'],
                   ['rain', 'Rain', 'Rain radar, last 10 minutes (RainViewer)'], ['clouds', 'Clouds', 'Satellite view, yesterday (NASA)']];
   const layerButtons = () => `<div class="seg" role="group" aria-label="Map layers">${LAYERS.map(([k, l, t]) => `<button data-l="${k}" title="${t}" class="${layersOn[k] ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const compass = d => d == null ? '' : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((d % 360) + 360) % 360 / 45) % 8];
@@ -594,7 +594,7 @@
     }
     if (layersOn.waves) {
       const d = await (wavesP || (wavesP = getJSON('data/waves.json', null)));
-      if (d && d.png) L.imageOverlay('data:image/png;base64,' + d.png, [[-d.lat_max, -180], [d.lat_max, 180]], { opacity:1, interactive:false, attribution:'Waves: NOAA WaveWatch III' }).addTo(m);
+      if (d && d.png) L.imageOverlay('data:image/png;base64,' + d.png, [[-d.lat_max, -180], [d.lat_max, 180]], { opacity:0.6, interactive:false, attribution:'Waves: NOAA WaveWatch III' }).addTo(m);
     }
     if (layersOn.rain) {
       try {
