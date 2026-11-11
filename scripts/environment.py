@@ -15,7 +15,7 @@ from common import DATA_DIR, LATEST, iso, now_utc, parse_iso, read_json, write_j
 CRISIS = os.path.join(DATA_DIR, "crisis.json")
 WEATHER = os.path.join(DATA_DIR, "weather.json")
 WAVES = os.path.join(DATA_DIR, "waves.json")
-WW3 = "https://upwell.pfeg.noaa.gov/erddap/griddap/NWW3_Global_Best.json?Thgt%5B({t})%5D%5B({la0}):2:({la1})%5D%5B(0.0):2:(359.0)%5D"
+WW3 = "https://upwell.pfeg.noaa.gov/erddap/griddap/NWW3_Global_Best.json?Thgt%5B({t})%5D%5B(0.0)%5D%5B({la0}):2:({la1})%5D%5B(0.0):2:(359.0)%5D"
 LAT_MAX = 76.0
 GDACS = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist={t}&alertlevel={lv}"
 TYPES = {"TC": "Tropical cyclone", "EQ": "Earthquake", "TS": "Tsunami", "VO": "Volcano", "FL": "Flood"}
@@ -162,18 +162,18 @@ def waves(now):
     if prev and now - prev < timedelta(hours=3) - timedelta(minutes=10):
         return
     t = now.replace(minute=0, second=0, microsecond=0)
-    data = None
+    data, err = None, ""
     for la0, la1 in ((-LAT_MAX, LAT_MAX), (LAT_MAX, -LAT_MAX)):
         for back in (0, 1, 2, 3, 6):
             try:
                 data = get(WW3.format(t=(t - timedelta(hours=back)).strftime("%Y-%m-%dT%H:%M:%SZ"), la0=la0, la1=la1), timeout=60)
                 break
-            except Exception:
-                data = None
+            except Exception as exc:
+                data, err = None, getattr(exc, "code", type(exc).__name__)
         if data:
             break
     if not data:
-        print("Waves map: not updated.")
+        print(f"Waves map: not updated ({err}).")
         return
     tbl = data.get("table", {})
     cols = tbl.get("columnNames", [])
