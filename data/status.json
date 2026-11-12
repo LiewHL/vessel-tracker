@@ -1,7 +1,18 @@
 {
-  "last_run_utc": "2026-11-11T23:15:56Z",
+  "last_run_utc": "2026-11-12T00:16:01Z",
   "last_status": "ok",
   "history": [
+    {
+      "run_utc": "2026-11-12T00:16:01Z",
+      "status": "ok",
+      "trigger": "cron",
+      "start_delay_min": 1.0,
+      "listen_minutes": 15.0,
+      "vessels_tracked": 7,
+      "vessels_heard": 1,
+      "messages": 13,
+      "reconnects": 0
+    },
     {
       "run_utc": "2026-11-11T23:15:56Z",
       "status": "ok",
@@ -2629,17 +2640,6 @@
       "vessels_tracked": 6,
       "vessels_heard": 1,
       "messages": 18,
-      "reconnects": 0
-    },
-    {
-      "run_utc": "2026-11-01T23:15:52Z",
-      "status": "ok",
-      "trigger": "cron",
-      "start_delay_min": 0.9,
-      "listen_minutes": 15.0,
-      "vessels_tracked": 6,
-      "vessels_heard": 1,
-      "messages": 2,
       "reconnects": 0
     }
   ]
