@@ -1308,8 +1308,9 @@
 
   function setupGutters() {
     const ws = $('ws'), left = $('left');
-    const lay = store.get('layout', { left:56, top:55 });
-    const apply = () => { ws.style.setProperty('--left', lay.left + '%'); left.style.setProperty('--top', lay.top + '%'); };
+    const lay = Object.assign({ left:56, top:55, fleft:70 }, store.get('layout', {}));
+    const lk = () => document.body.classList.contains('focus') ? 'fleft' : 'left';
+    const apply = () => { ws.style.setProperty('--left', lay.left + '%'); ws.style.setProperty('--fleft', lay.fleft + '%'); left.style.setProperty('--top', lay.top + '%'); };
     apply();
     function drag(g, onMove) {
       const start = e => {
@@ -1322,11 +1323,11 @@
       };
       g.addEventListener('mousedown', start); g.addEventListener('touchstart', start, { passive:false });
     }
-    drag($('gutV'), pt => { const r = ws.getBoundingClientRect(); lay.left = Math.min(80, Math.max(25, (pt.clientX - r.left) / r.width * 100)); });
+    drag($('gutV'), pt => { const r = ws.getBoundingClientRect(); lay[lk()] = Math.min(85, Math.max(25, (pt.clientX - r.left) / r.width * 100)); });
     drag($('gutH'), pt => { const r = left.getBoundingClientRect(); lay.top = Math.min(85, Math.max(15, (pt.clientY - r.top) / r.height * 100)); });
     const key = (g, prop, step) => g.addEventListener('keydown', e => {
       const d = { ArrowLeft:-step, ArrowUp:-step, ArrowRight:step, ArrowDown:step }[e.key]; if (!d) return;
-      e.preventDefault(); lay[prop] = Math.min(prop === 'left' ? 80 : 85, Math.max(prop === 'left' ? 25 : 15, lay[prop] + d)); apply(); store.set('layout', lay); relayout();
+      e.preventDefault(); if (prop === 'left') prop = lk(); lay[prop] = Math.min(85, Math.max(prop === 'top' ? 15 : 25, lay[prop] + d)); apply(); store.set('layout', lay); relayout();
     });
     key($('gutV'), 'left', 2); key($('gutH'), 'top', 3);
   }
