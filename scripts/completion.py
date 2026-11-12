@@ -1,20 +1,25 @@
 import html
+from datetime import timedelta
 
 from common import REQUIRED_DAYS, completion_date, period_info
 
 HEADER = ["Code", "Vessel", "Category", "Group", "Days on board", "Days left",
-          "Completed on / expected", "Paused since", "Resumes"]
+          "Completed on / expected", "Paused since", "Resumes", "Expected in range"]
 
 
 def gather(roster, start, end, today):
-    end = min(end, today)
-    done, expected, paused = [], [], []
+    """Completed between start and min(end, today); when end is in the future, also who is expected to complete by then."""
+    done, expected, paused, due = [], [], [], []
+    fut0 = max(start, today + timedelta(days=1))
     for v in roster:
         st = v.get("stints", [])
         p = period_info(st, today)
         d = completion_date(st)
-        if d and start <= d <= end:
+        if d and start <= d <= min(end, today):
             done.append((d, v))
+        e = p["expected_end"]
+        if e and fut0 <= e <= end and (p["status"] == "onboard" or p["next_start"]):
+            due.append((e, v, p))
         if p["status"] == "onboard" and p["expected_end"]:
             expected.append((p["expected_end"], v, p["days"]))
         elif p["status"] == "paused" or (p["status"] == "upcoming" and p["days"] > 0):
@@ -23,7 +28,9 @@ def gather(roster, start, end, today):
     done.sort(key=lambda x: (x[0], x[1]["id"]))
     expected.sort(key=lambda x: (x[0], x[1]["id"]))
     paused.sort(key=lambda x: (cat(x[0]), x[0]["id"]))
-    return {"completed": done, "expected": expected, "paused": paused, "start": start, "end": end, "today": today}
+    due.sort(key=lambda x: (x[0], x[1]["id"]))
+    return {"completed": done, "expected": expected, "paused": paused, "due": due, "start": start, "end": end,
+            "today": today, "fut0": fut0}
 
 
 def _cat(v):
@@ -55,17 +62,32 @@ def section(g, range_label, colours=None, heading="Completion"):
                 f'<td class=num>{p["days"]}</td><td>{off}</td><td>{nxt}</td></tr>')
     rows_p = "".join(paused_row(v, p) for v, p in g["paused"])
 
+    def note(p):
+        if p["status"] == "onboard":
+            return ""
+        return ("after resume " if p["days"] > 0 else "starts ") + f'{p["next_start"]:%d %b %Y}'
+    rows_d = "".join(f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
+                     f'<td class=num>{p["days"]}</td><td>{d:%d %b %Y}</td><td>{e(note(p))}</td></tr>' for d, v, p in g["due"])
+    future = g["end"] > today
+    fut_label = f'{g["fut0"]:%d %b %Y} – {g["end"]:%d %b %Y}'
+
     def grp(title, n, head, rows, empty, open_=True):
         body = (f'<div class="tablewrap" style="padding:0 0 8px 18px"><table class="small" style="min-width:0;white-space:nowrap"><thead><tr>{head}'
                 f'</tr></thead><tbody>{rows}</tbody></table></div>') if rows else f'<p class="sub" style="margin:4px 0 10px 18px">{empty}</p>'
         return f'<details class="grp"{" open" if open_ else ""}><summary><b>{title}</b> <span class="sub">· {n}</span></summary>{body}</details>'
 
-    n_c, n_e, n_p = len(g["completed"]), len(g["expected"]), len(g["paused"])
+    n_c, n_e, n_p, n_d = len(g["completed"]), len(g["expected"]), len(g["paused"]), len(g["due"])
+    past = g["start"] <= today
+    done_label = f'{g["start"]:%d %b %Y} – today' if future else range_label
     return (f'<section><h2>{e(heading)}</h2>'
-            f'<p><b>{n_c}</b> completed in {e(range_label)} · <b>{n_e}</b> on board '
-            f'· <b>{n_p}</b> paused.</p>'
-            + grp(f"Completed in {e(range_label)}", n_c, "<th>Code</th><th>Vessel</th><th>Category</th><th>Completed on</th>",
-                  rows_c, "None in this period.")
+            f'<p>' + (f'<b>{n_c}</b> completed in {e(done_label)} · ' if past else '')
+            + (f'<b>{n_d}</b> expected to complete {e(fut_label)} · ' if future else '')
+            + f'<b>{n_e}</b> on board · <b>{n_p}</b> paused.</p>'
+            + (grp(f"Completed in {e(done_label)}", n_c, "<th>Code</th><th>Vessel</th><th>Category</th><th>Completed on</th>",
+                   rows_c, "None in this period.") if past else '')
+            + (grp(f"Expected to complete {e(fut_label)}", n_d,
+                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Expected</th><th>Note</th>",
+                   rows_d, "None expected in this range.") if future else '')
             + grp("Expected completion (still on board, soonest first)", n_e,
                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days on board</th><th class=num>Days left</th>"
                   "<th>Expected</th><th>Progress</th>", rows_e, "No codes on board.")
@@ -76,21 +98,25 @@ def section(g, range_label, colours=None, heading="Completion"):
 
 
 def sheet(g):
-    rows = []
+    rows, due = [], {v["id"] for _, v, _ in g["due"]}
     for d, v in g["completed"]:
-        rows.append([v["id"], v["vessel_name"], _cat(v), "Completed", REQUIRED_DAYS, 0, f"{d:%Y-%m-%d}", "", ""])
+        rows.append([v["id"], v["vessel_name"], _cat(v), "Completed", REQUIRED_DAYS, 0, f"{d:%Y-%m-%d}", "", "", ""])
     for d, v, days in g["expected"]:
-        rows.append([v["id"], v["vessel_name"], _cat(v), "On board", days, max(0, (d - g["today"]).days), f"{d:%Y-%m-%d}", "", ""])
+        rows.append([v["id"], v["vessel_name"], _cat(v), "On board", days, max(0, (d - g["today"]).days), f"{d:%Y-%m-%d}", "", "",
+                     "Yes" if v["id"] in due else ""])
     for v, p in g["paused"]:
         rows.append([v["id"], v["vessel_name"], _cat(v), "Paused", p["days"], REQUIRED_DAYS - p["days"],
                      f"{p['expected_end']:%Y-%m-%d}" if p.get("expected_end") else "",
                      f"{p['paused_since']:%Y-%m-%d}" if p.get("paused_since") else "",
-                     f"{p['next_start']:%Y-%m-%d}" if p.get("next_start") else ""])
+                     f"{p['next_start']:%Y-%m-%d}" if p.get("next_start") else "", "Yes" if v["id"] in due else ""])
     return ("Completion", HEADER, rows)
 
 
 def summary_lines(g, range_label):
     soon = [x for x in g["expected"] if (x[0] - g["today"]).days <= 30]
-    return [f"Completion: {len(g['completed'])} completed in {range_label}; "
+    extra = (f"{len(g['due'])} expected to complete {g['fut0']:%d %b %Y} – {g['end']:%d %b %Y}; "
+             if g["end"] > g["today"] else "")
+    done_label = f"{g['start']:%d %b %Y} – today" if g["end"] > g["today"] else range_label
+    return [f"Completion: {len(g['completed'])} completed in {done_label}; " + extra +
             f"{len(g['expected'])} on board ({len(soon)} expected to complete in the next 30 days); "
             f"{len(g['paused'])} paused."]

@@ -7,7 +7,7 @@ on:
         description: "From date YYYY-MM-DD (empty = 1st of this month)"
         default: ""
       to:
-        description: "To date YYYY-MM-DD (empty = today)"
+        description: "To date YYYY-MM-DD (empty = today; a future date adds who is expected to complete)"
         default: ""
       category:
         description: "Category, e.g. 2620 (empty = all)"

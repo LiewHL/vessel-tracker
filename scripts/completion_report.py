@@ -31,13 +31,15 @@ def main():
     if a.category:
         roster = [v for v in roster if (v.get("category") or "").strip() == a.category.strip()]
     g = completion.gather(roster, start, end, today)
-    label = f"{start:%d %b %Y} – {min(end, today):%d %b %Y}"
+    label = f"{start:%d %b %Y} – {end:%d %b %Y}"
     period = label + (f" · category {a.category}" if a.category else "")
     e = html.escape
     rows = [{"Code": v["id"], "Vessel": v["vessel_name"], "Category": (v.get("category") or "").strip()} for v in roster]
     body = completion.section(g, label, category_colours(roster))
     kpis = "".join(f'<div class="kpi"><b>{n}</b><span>{e(t)}</span></div>' for n, t in
-                   [(len(g["completed"]), "Completed in range"), (len(g["expected"]), "On board"),
+                   [(len(g["completed"]), "Completed in range")]
+                   + ([(len(g["due"]), "Expected in range")] if end > today else [])
+                   + [(len(g["expected"]), "On board"),
                     (len(g["paused"]), "Paused")])
     tag = f"{now.astimezone(SGT):%Y-%m-%d-%H%M}"
     page = f"""<!doctype html>

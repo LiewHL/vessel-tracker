@@ -55,6 +55,9 @@
   .sendrow select, .sendrow input { font:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--line); border-radius:7px;
                                     background:var(--card); color:var(--ink); min-width:0; }
   .sendrow input { flex:1 1 140px; }
+  #sendDates { display:inline-flex; gap:6px; align-items:center; }
+  #sendDates[hidden] { display:none; }
+  #sendDates input { flex:0 0 auto; width:auto; }
   #sendMsg.ok { color:var(--fresh); } #sendMsg.bad { color:var(--old); }
   .banner { background:color-mix(in srgb, var(--stale) 14%, var(--card)); border-bottom:1px solid color-mix(in srgb, var(--stale) 40%, transparent);
             padding:7px 14px; display:none; font-size:12px; }
@@ -254,7 +257,8 @@
     <h2>Send a report by email</h2>
     <div class="sendrow"><select id="sendKind" aria-label="Report">
         <option value="weekly">Weekly (last 7 days)</option><option value="monthly">Monthly (last full month)</option>
-        <option value="quarterly">Quarterly (last full quarter)</option><option value="countries">Countries (whole period)</option><option value="completion">Completion (this month + expected)</option></select>
+        <option value="quarterly">Quarterly (last full quarter)</option><option value="countries">Countries (whole period)</option><option value="completion">Completion (dates below)</option></select>
+      <span id="sendDates" hidden><input type="date" id="sendFrom" aria-label="From"> – <input type="date" id="sendTo" aria-label="To"></span>
       <input id="sendCode" type="password" autocomplete="off" placeholder="Your Send code" aria-label="Your Send code">
       <button class="hbtn" id="sendGo" type="button">Send</button></div>
     <div class="foot" id="sendMsg">The report goes to the SP email linked to your Send code (at most 5 a day). No copy is kept.</div>
@@ -721,17 +725,24 @@
     btn.onclick = e => { e.stopPropagation(); const o = pop.classList.toggle('open'); btn.setAttribute('aria-expanded', o); if (o) $('sendCode').focus(); };
     document.addEventListener('click', e => { if (!pop.contains(e.target) && e.target !== btn) { pop.classList.remove('open'); btn.setAttribute('aria-expanded', false); } });
     $('sendCode').onkeydown = e => { if (e.key === 'Enter') go.click(); };
+    const sd = () => { const on = $('sendKind').value === 'completion'; $('sendDates').hidden = !on;
+      if (on && !$('sendFrom').value) { const t = sgtDate(Date.now()), d = new Date(dParse(t)); $('sendFrom').value = t.slice(0, 8) + '01';
+        $('sendTo').value = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10); } };
+    $('sendKind').onchange = sd; sd();
     const H = { Accept:'application/vnd.github+json', Authorization:'Bearer ' + cfg.key, 'X-GitHub-Api-Version':'2022-11-28' };
     const base = 'https://api.github.com/repos/' + cfg.repo + '/actions/workflows/send.yml';
     const wait = ms => new Promise(r => setTimeout(r, ms));
     go.onclick = async () => {
       const kind = $('sendKind').value, code = $('sendCode').value.trim(), name = $('sendKind').selectedOptions[0].textContent.split(' (')[0];
       if (!code) { say('Enter your Send code.', 'bad'); return; }
+      const inputs = { report:kind, code };
+      if (kind === 'completion') { inputs.from = $('sendFrom').value; inputs.to = $('sendTo').value;
+        if (!inputs.from || !inputs.to || inputs.to < inputs.from) { say('Pick a From date on or before the To date.', 'bad'); return; } }
       go.disabled = true; say('Sending the request…');
       const t0 = Date.now();
       try {
         const r = await fetch(base + '/dispatches', { method:'POST', headers:Object.assign({ 'Content-Type':'application/json' }, H),
-          body:JSON.stringify({ ref:'main', inputs:{ report:kind, code } }) });
+          body:JSON.stringify({ ref:'main', inputs }) });
         if (r.status !== 204) throw new Error('the request was refused (' + r.status + ')');
         $('sendCode').value = '';
         say('Request sent. Checking your Send code…');
@@ -921,10 +932,10 @@
       tools += `<div class="seg" role="group" aria-label="Period">${[['att', 'Period'], ['30', '30 d'], ['7', '7 d']].map(([k, l]) => `<button data-cr="${k}" class="${(p.crange || 'att') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     } else if (p.mode === 'completion') {
       const cr = p.comp || 'm';
-      tools += `<div class="seg" role="group" aria-label="Completed in">${[['m', 'This month'], ['lm', 'Last month'], ['q', 'This quarter'], ['lq', 'Last quarter'], ['c', 'Dates']].map(([k, l]) => `<button data-cm="${k}" class="${cr === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+      tools += `<div class="seg" role="group" aria-label="Completed in">${[['lq', 'Last quarter'], ['lm', 'Last month'], ['m', 'This month'], ['q', 'This quarter'], ['nm', 'Next month'], ['nq', 'Next quarter'], ['c', 'Dates']].map(([k, l]) => `<button data-cm="${k}" class="${cr === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
       if (cr === 'c') {
         const today = sgtDate(Date.now());
-        tools += `<input type="date" class="cfrom" aria-label="From" value="${p.cfrom || today.slice(0, 8) + '01'}" max="${today}"><input type="date" class="cto" aria-label="To" value="${p.cto || today}" max="${today}">`;
+        tools += `<input type="date" class="cfrom" aria-label="From" value="${p.cfrom || today.slice(0, 8) + '01'}"><input type="date" class="cto" aria-label="To" value="${p.cto || today}">`;
       }
     } else {
       tools += catPicker(p) + `<select class="ship" aria-label="Vessel">${shipOptions(p.cat)}</select>`;
@@ -1253,20 +1264,28 @@
   }
   function drawCompletion(p, body) {
     const today = dParse(sgtDate(Date.now())), t = new Date(today), y = t.getUTCFullYear(), m = t.getUTCMonth(), q = Math.floor(m / 3) * 3;
-    const R = { m:[Date.UTC(y, m, 1), today, 'this month'], lm:[Date.UTC(y, m - 1, 1), Date.UTC(y, m, 0), 'last month'],
-                q:[Date.UTC(y, q, 1), today, 'this quarter'], lq:[Date.UTC(y, q - 3, 1), Date.UTC(y, q, 0), 'last quarter'] };
+    const R = { m:[Date.UTC(y, m, 1), Date.UTC(y, m + 1, 0), 'this month'], lm:[Date.UTC(y, m - 1, 1), Date.UTC(y, m, 0), 'last month'],
+                q:[Date.UTC(y, q, 1), Date.UTC(y, q + 3, 0), 'this quarter'], lq:[Date.UTC(y, q - 3, 1), Date.UTC(y, q, 0), 'last quarter'],
+                nm:[Date.UTC(y, m + 1, 1), Date.UTC(y, m + 2, 0), 'next month'], nq:[Date.UTC(y, q + 3, 1), Date.UTC(y, q + 6, 0), 'next quarter'] };
     let [from, to, label] = R[p.comp || 'm'] || R.m;
-    if (p.comp === 'c') { from = dParse(p.cfrom || sgtDate(Date.now()).slice(0, 8) + '01'); to = Math.min(dParse(p.cto || sgtDate(Date.now())), today); label = dShort(from) + ' – ' + dShort(to); }
+    if (p.comp === 'c') { from = dParse(p.cfrom || sgtDate(Date.now()).slice(0, 8) + '01'); to = dParse(p.cto || sgtDate(Date.now())); label = dShort(from) + ' – ' + dShort(to); }
+    const yr = d => `${dShort(d)} ${new Date(d).getUTCFullYear()}`;
+    const pastTo = Math.min(to, today), futFrom = Math.max(from, today + DAY);
     const order = (a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true });
     const list = vessels.slice().sort(order), dot = v => `<i class="dot" style="background:${v.category ? catColor(v.category) : css('--none')}"></i> `;
-    const done = list.map(v => ({ v, d:completionDate(v._stints || []) })).filter(x => x.d && x.d >= from && x.d <= to).sort((a, b) => a.d - b.d);
+    const done = list.map(v => ({ v, d:completionDate(v._stints || []) })).filter(x => x.d && x.d >= from && x.d <= pastTo && x.d <= today).sort((a, b) => a.d - b.d);
+    const due = to < futFrom ? [] : list.filter(v => v._p && v._p.expectedEnd && v._p.expectedEnd >= futFrom && v._p.expectedEnd <= to
+      && (v._p.status === 'onboard' || ((v._p.status === 'paused' || v._p.status === 'upcoming') && v._p.nextStart))).sort((a, b) => a._p.expectedEnd - b._p.expectedEnd);
+    const futLabel = from >= futFrom ? label : dShort(futFrom) + ' – ' + dShort(to);
     const onb = list.filter(v => v._p && v._p.status === 'onboard' && v._p.expectedEnd).sort((a, b) => a._p.expectedEnd - b._p.expectedEnd);
     const off = list.filter(v => v._p && (v._p.status === 'paused' || (v._p.status === 'upcoming' && v._p.days > 0)));
     const row = (v, cells) => `<tr data-id="${esc(v.id)}"><td>${dot(v)}<b>${esc(v.id)}</b></td><td>${esc(v.vessel_name)}</td><td>${esc(catOf(v))}</td>${cells}</tr>`;
     const table = (head, rows, empty) => rows ? `<table><thead><tr><th>Code</th><th>Vessel</th><th>Category</th>${head}</tr></thead><tbody>${rows}</tbody></table>` : `<div class="sub">${empty}</div>`;
     const pct = v => Math.round(100 * Math.min(v._p.days, REQ_DAYS) / REQ_DAYS);
     body.innerHTML = `<div class="cmpwrap">
-      <h3>Completed ${esc(label)} · ${done.length}</h3>${table('<th>Completed on</th>', done.map(x => row(x.v, `<td>${esc(dShort(x.d))} ${new Date(x.d).getUTCFullYear()}</td>`)).join(''), 'None in this range.')}
+      ${from <= today ? `<h3>Completed ${esc(to > today ? dShort(from) + ' – today' : label)} · ${done.length}</h3>${table('<th>Completed on</th>', done.map(x => row(x.v, `<td>${esc(yr(x.d))}</td>`)).join(''), 'None in this range.')}` : ''}
+      ${to > today ? `<h3>Expected to complete ${esc(futLabel)} · ${due.length}</h3>${table('<th class="num">Days</th><th>Expected</th><th>Note</th>',
+        due.map(v => row(v, `<td class="num">${v._p.days}</td><td>${esc(yr(v._p.expectedEnd))}</td><td>${v._p.status === 'onboard' ? '' : (v._p.days > 0 ? 'after resume ' : 'starts ') + esc(dShort(v._p.nextStart))}</td>`)).join(''), 'None expected in this range.')}` : ''}
       <h3>Expected completion (on board, soonest first) · ${onb.length}</h3>${table('<th class="num">Days</th><th class="num">Left</th><th>Expected</th><th>Progress</th>',
         onb.map(v => row(v, `<td class="num">${v._p.days}</td><td class="num">${Math.max(0, Math.round((v._p.expectedEnd - today) / DAY))}</td><td>${esc(dShort(v._p.expectedEnd))} ${new Date(v._p.expectedEnd).getUTCFullYear()}</td><td><span class="bar"><i style="width:${pct(v)}%"></i></span>${pct(v)}%</td>`)).join(''), 'No codes on board.')}
       <h3>Paused · ${off.length}</h3>${table('<th class="num">Days</th><th>Paused since</th><th>Resumes</th>',
