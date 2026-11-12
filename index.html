@@ -63,6 +63,10 @@
   .left { display:grid; grid-template-rows:var(--top, 55%) 6px minmax(0, 1fr); min-height:0; min-width:0; }
   .gutter { background:var(--line); position:relative; }
   .gutter:hover, .gutter.drag { background:var(--accent); }
+  .cchip { display:inline-flex; align-items:center; gap:6px; padding:3px 4px 3px 10px; border:1px solid var(--accent); border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .cchip button { border:0; background:none; color:inherit; cursor:pointer; font-size:12px; padding:0 4px; }
+  .plist tr.pick { cursor:pointer; }
+  .plist tr.pick:hover td { background:var(--line); }
   .gutter.v { cursor:col-resize; } .gutter.h { cursor:row-resize; }
   .gutter::after { content:""; position:absolute; inset:-4px; }
   .pane { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--card); }
@@ -850,7 +854,8 @@
     $('rows').querySelectorAll('tr[data-id]').forEach(tr => tr.classList.toggle('sel', tr.dataset.id === id));
     if (!fromTable && !noScroll) { const tr = $('rows').querySelector(`tr[data-id="${CSS.escape(id)}"]`); if (tr) tr.scrollIntoView({ block:'nearest' }); }
     if (fromTable && v && hiddenCats.has(catOf(v))) { hiddenCats.delete(catOf(v)); saveHidden(); P.forEach(q => q.mode === 'fleet' && renderPane(q)); }
-    if (fromTable && P.length === 2) {
+    if (fromTable) P.forEach(q => { if (q.mode === 'countries') q.cship = id; });
+    if (fromTable && P.length === 2 && !P.some(q => q.mode === 'countries')) {
       const [top, bot] = P;
       if (top.mode !== 'fleet') { top.mode = 'fleet'; renderPane(top); }
       bot.mode = 'route';
@@ -867,6 +872,7 @@
   }
 
   const P = [];
+  const started = v => (v._stints || []).some(s => !isNaN(s.start) && s.start <= dParse(sgtDate(Date.now())));
   function catPicker(p) {
     const cats = catOrder.filter(c => vessels.some(v => catOf(v) === c));
     if (cats.length < 2 && !vessels.some(v => !v.category)) return '';
@@ -907,8 +913,11 @@
     } else if (p.mode === 'timeline') {
       tools += `<div class="tinfo" aria-label="Categories">${catChips(hiddenCatsTL, 'timeline')}</div>`;
     } else if (p.mode === 'countries') {
-      const cv = p.cview || 'all';
-      tools += `<select class="cview" aria-label="Show countries for"><option value="all">All ships</option>${catOrder.filter(c => vessels.some(v => catOf(v) === c)).map(c => `<option value="c:${esc(c)}" ${cv === 'c:' + c ? 'selected' : ''}>Category ${esc(c)}</option>`).join('')}${vessels.map(v => `<option value="s:${esc(v.id)}" ${cv === 's:' + v.id ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('')}</select>`;
+      if ((p.cview || '').startsWith('s:')) { p.cship = p.cview.slice(2); p.cview = 'all'; }
+      const cv = p.cview || 'all', live = vessels.filter(started);
+      tools += `<select class="cview" aria-label="Show countries for"><option value="all">All ships</option>${catOrder.filter(c => live.some(v => catOf(v) === c)).map(c => `<option value="c:${esc(c)}" ${cv === 'c:' + c ? 'selected' : ''}>Category ${esc(c)}</option>`).join('')}</select>`;
+      const cs = p.cship && shipById(p.cship);
+      if (cs) tools += `<span class="cchip" title="Showing this ship only">${esc(cs.id)} · ${esc(cs.vessel_name)}<button type="button" class="cclr" aria-label="Show the group again" title="Show the group again">✕</button></span>`;
       tools += `<div class="seg" role="group" aria-label="Period">${[['att', 'Period'], ['30', '30 d'], ['7', '7 d']].map(([k, l]) => `<button data-cr="${k}" class="${(p.crange || 'att') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     } else if (p.mode === 'completion') {
       const cr = p.comp || 'm';
@@ -956,7 +965,8 @@
       return drawCompletion(p, body);
     }
     if (p.mode === 'countries') {
-      const cs = p.el.querySelector('.cview'); if (cs) cs.onchange = e => { p.cview = e.target.value; save(); renderPane(p); };
+      const cs = p.el.querySelector('.cview'); if (cs) cs.onchange = e => { p.cview = e.target.value; p.cship = ''; save(); renderPane(p); };
+      const cc = p.el.querySelector('.cclr'); if (cc) cc.onclick = () => { p.cship = ''; renderPane(p); };
       p.el.querySelectorAll('[data-cr]').forEach(b => b.onclick = () => { p.crange = b.dataset.cr; save(); renderPane(p); });
       return drawCountries(p, body);
     }
@@ -1179,8 +1189,10 @@
     const [rows, geo] = await Promise.all([loadPositions(), loadGeo()]);
     if (!p.el.contains(body)) return;
     body.innerHTML = '';
-    const cv = p.cview || 'all', from = p.crange === '30' ? Date.now() - 30 * 864e5 : p.crange === '7' ? Date.now() - 7 * 864e5 : -Infinity;
-    const pick = cv === 'all' ? vessels : cv.startsWith('c:') ? vessels.filter(v => catOf(v) === cv.slice(2)) : vessels.filter(v => v.id === cv.slice(2));
+    const one = p.cship && shipById(p.cship) ? p.cship : '';
+    const cv = one ? 's:' + one : (p.cview || 'all'), from = p.crange === '30' ? Date.now() - 30 * 864e5 : p.crange === '7' ? Date.now() - 7 * 864e5 : -Infinity;
+    const live = vessels.filter(started);
+    const pick = cv === 'all' ? live : cv.startsWith('c:') ? live.filter(v => catOf(v) === cv.slice(2)) : vessels.filter(v => v.id === cv.slice(2));
     const ships = pick.map(v => ({ v, calls:visitsOf(v, shipFixes(rows, v.id)).filter(c => c.end >= from) })).filter(x => x.calls.length);
     const alias = { 'Congo':'Republic of the Congo' }, count = {}, perShip = {};
     ships.forEach(x => { const bc = byCountry(x.calls); perShip[x.v.id] = bc; [...bc.keys()].forEach(c => { const k = alias[c] || c; count[k] = (count[k] || 0) + 1; }); });
@@ -1201,7 +1213,8 @@
       onEachFeature:(f, l) => l.bindTooltip(`${esc(f.properties.name)} · ${count[f.properties.name]} ship${count[f.properties.name] > 1 ? 's' : ''}`, { sticky:true })
     }).addTo(m);
     ships.forEach(x => x.calls.forEach((c, i) => L.circleMarker([c.lat, c.lon], { radius:cv.startsWith('s:') ? 6 : 4, color:'#fff', weight:1.5, fillColor:cv === 'all' ? dotColor(x.v) : col, fillOpacity:1 })
-      .bindTooltip(`${cv.startsWith('s:') ? (i + 1) + '. ' : esc(x.v.id) + ' · '}${esc(c.place)}<br>${esc(fmtTime(c.start))}`, { direction:'top' }).addTo(m)));
+      .bindTooltip(`${cv.startsWith('s:') ? (i + 1) + '. ' : esc(x.v.id) + ' · '}${esc(c.place)}<br>${esc(fmtTime(c.start))}`, { direction:'top' })
+      .on('click', () => { if (!one) { p.cship = x.v.id; renderPane(p); } }).addTo(m)));
     const allPts = Object.values(pts).flat();
     if (allPts.length && L.latLngBounds) m.fitBounds(L.latLngBounds(allPts), { padding:[30, 30], maxZoom:cv.startsWith('s:') ? 6 : 5 });
     const n = Object.keys(count).length;
@@ -1214,8 +1227,8 @@
     const nStud = pick.length, aciTip = `Called at — ASEAN (incl. Singapore): ${aci.a} · China (incl. Hong Kong, Macao): ${aci.c} · India: ${aci.i} · any: ${aci.any} of ${nStud}`;
     info.innerHTML = `<span>${n} countr${n === 1 ? 'y' : 'ies'} · ${ships.length} ship${ships.length === 1 ? '' : 's'}</span><span title="${esc(aciTip)}">ASEAN ${aci.a} · China ${aci.c} · India ${aci.i} <span style="opacity:.75">&nbsp;of ${nStud}</span></span><button class="hbtn" type="button" aria-expanded="false">List ▾</button>`;
     p.el.querySelector('.ptool').appendChild(info);
-    const rowsHtml = ships.flatMap(x => [...perShip[x.v.id].entries()].map(([c, e]) => `<tr><td><b>${esc(x.v.id)}</b></td><td>${esc(c)}</td><td>${esc(e.ports.join(', '))}</td><td>${e.calls}</td><td>${esc(fmtH(e.hours))}</td></tr>`)).join('');
-    const aciRows = ships.filter(x => aciTxt[x.v.id]).map(x => `<tr><td><b>${esc(x.v.id)}</b></td><td colspan="4">${esc(aciTxt[x.v.id])}</td></tr>`).join('');
+    const rowsHtml = ships.flatMap(x => [...perShip[x.v.id].entries()].map(([c, e]) => `<tr data-id="${esc(x.v.id)}" class="pick" title="Show this ship only"><td><b>${esc(x.v.id)}</b></td><td>${esc(c)}</td><td>${esc(e.ports.join(', '))}</td><td>${e.calls}</td><td>${esc(fmtH(e.hours))}</td></tr>`)).join('');
+    const aciRows = ships.filter(x => aciTxt[x.v.id]).map(x => `<tr data-id="${esc(x.v.id)}" class="pick" title="Show this ship only"><td><b>${esc(x.v.id)}</b></td><td colspan="4">${esc(aciTxt[x.v.id])}</td></tr>`).join('');
     const aciHtml = `<div class="sub" style="padding:6px 8px">${esc(aciTip)}. ASEAN includes Singapore (also a start or end of period there); China includes Hong Kong and Macao; Taiwan is not counted.</div>`
       + (aciRows ? `<table><thead><tr><th>ID</th><th colspan="4">ASEAN · China · India</th></tr></thead><tbody>${aciRows}</tbody></table>` : '');
     const list = document.createElement('div'); list.className = 'overlay plist'; list.hidden = true;
@@ -1223,6 +1236,7 @@
       : '<div class="sub" style="padding:8px">No port calls in this period.</div>') + aciHtml;
     if (L.DomEvent) { L.DomEvent.disableClickPropagation(list); L.DomEvent.disableScrollPropagation(list); }
     body.appendChild(list);
+    list.querySelectorAll('tr.pick').forEach(tr => tr.onclick = () => { if (p.cship !== tr.dataset.id) { p.cship = tr.dataset.id; renderPane(p); } });
     const lb = info.querySelector('button');
     lb.onclick = () => { list.hidden = !list.hidden; lb.setAttribute('aria-expanded', !list.hidden); lb.textContent = list.hidden ? 'List ▾' : 'List ▴'; };
     if (!ships.length) { const d = document.createElement('div'); d.className = 'overlay'; d.style.cssText = 'left:50%;top:12px;transform:translateX(-50%)'; d.textContent = 'No port calls recorded in this period.'; body.appendChild(d); }
