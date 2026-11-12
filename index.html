@@ -66,6 +66,12 @@
   .left { display:grid; grid-template-rows:var(--top, 55%) 6px minmax(0, 1fr); min-height:0; min-width:0; }
   .gutter { background:var(--line); position:relative; }
   .gutter:hover, .gutter.drag { background:var(--accent); }
+  .cmpwrap tr.cgrp td { font-weight:700; padding-top:8px; border-bottom:1px solid var(--line); }
+  details.cmpgrp > summary { cursor:pointer; list-style:none; }
+  details.cmpgrp > summary::-webkit-details-marker { display:none; }
+  details.cmpgrp > summary h3 { display:inline; }
+  details.cmpgrp > summary::before { content:'▸ '; font-size:11px; }
+  details.cmpgrp[open] > summary::before { content:'▾ '; }
   .cchip { display:inline-flex; align-items:center; gap:6px; padding:3px 4px 3px 10px; border:1px solid var(--accent); border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
   .cchip button { border:0; background:none; color:inherit; cursor:pointer; font-size:12px; padding:0 4px; }
   .plist tr.pick { cursor:pointer; }
@@ -895,7 +901,7 @@
     return vessels.filter(v => !cat || catOf(v) === cat).slice().sort((a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true })).map(v => `<option value="${esc(v.id)}" ${v.id === selectedId ? 'selected' : ''}>${esc(v.id)} · ${esc(v.vessel_name)}</option>`).join('');
   }
 
-  function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to, cat:p.cat || '', cview:p.cview || 'all', crange:p.crange || 'att', comp:p.comp || 'm', cfrom:p.cfrom || '', cto:p.cto || '' }))); }
+  function save() { store.set('panes', P.map(p => ({ mode:p.mode, range:p.range, from:p.from, to:p.to, cat:p.cat || '', cview:p.cview || 'all', crange:p.crange || 'att', comp:p.comp || 'm', ccat:p.ccat || '', cfrom:p.cfrom || '', cto:p.cto || '' }))); }
   function destroy(p) { if (p.map) { p.map.remove(); p.map = null; } p.markers = {}; }
 
   let focusPane = null;
@@ -932,6 +938,7 @@
       tools += `<div class="seg" role="group" aria-label="Period">${[['att', 'Period'], ['30', '30 d'], ['7', '7 d']].map(([k, l]) => `<button data-cr="${k}" class="${(p.crange || 'att') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     } else if (p.mode === 'completion') {
       const cr = p.comp || 'm';
+      tools += `<select class="ccat" aria-label="Category"><option value="">All categories</option>${catOrder.filter(c => vessels.some(v => catOf(v) === c)).map(c => `<option value="${esc(c)}" ${p.ccat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
       tools += `<div class="seg" role="group" aria-label="Completed in">${[['lq', 'Last quarter'], ['lm', 'Last month'], ['m', 'This month'], ['q', 'This quarter'], ['nm', 'Next month'], ['nq', 'Next quarter'], ['c', 'Dates']].map(([k, l]) => `<button data-cm="${k}" class="${cr === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
       if (cr === 'c') {
         const today = sgtDate(Date.now());
@@ -955,6 +962,7 @@
     p.el.querySelector('.mode').onchange = e => { p.mode = e.target.value; save(); renderPane(p); };
     const shipSel = p.el.querySelector('.ship');
     if (shipSel) shipSel.onchange = e => select(e.target.value, false, true);
+    const ccSel = p.el.querySelector('.ccat'); if (ccSel) ccSel.onchange = e => { p.ccat = e.target.value; save(); renderPane(p); };
     const catSel = p.el.querySelector('.pcat');
     if (catSel) catSel.onchange = e => {
       p.cat = e.target.value; save();
@@ -1272,7 +1280,7 @@
     const yr = d => `${dShort(d)} ${new Date(d).getUTCFullYear()}`;
     const pastTo = Math.min(to, today), futFrom = Math.max(from, today + DAY);
     const order = (a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true });
-    const list = vessels.slice().sort(order), dot = v => `<i class="dot" style="background:${v.category ? catColor(v.category) : css('--none')}"></i> `;
+    const list = vessels.filter(v => !p.ccat || catOf(v) === p.ccat).sort(order), dot = v => `<i class="dot" style="background:${v.category ? catColor(v.category) : css('--none')}"></i> `;
     const done = list.map(v => ({ v, d:completionDate(v._stints || []) })).filter(x => x.d && x.d >= from && x.d <= pastTo && x.d <= today).sort((a, b) => a.d - b.d);
     const due = to < futFrom ? [] : list.filter(v => v._p && v._p.expectedEnd && v._p.expectedEnd >= futFrom && v._p.expectedEnd <= to
       && (v._p.status === 'onboard' || ((v._p.status === 'paused' || v._p.status === 'upcoming') && v._p.nextStart))).sort((a, b) => a._p.expectedEnd - b._p.expectedEnd);
@@ -1280,16 +1288,22 @@
     const onb = list.filter(v => v._p && v._p.status === 'onboard' && v._p.expectedEnd).sort((a, b) => a._p.expectedEnd - b._p.expectedEnd);
     const off = list.filter(v => v._p && (v._p.status === 'paused' || (v._p.status === 'upcoming' && v._p.days > 0)));
     const row = (v, cells) => `<tr data-id="${esc(v.id)}"><td>${dot(v)}<b>${esc(v.id)}</b></td><td>${esc(v.vessel_name)}</td><td>${esc(catOf(v))}</td>${cells}</tr>`;
-    const table = (head, rows, empty) => rows ? `<table><thead><tr><th>Code</th><th>Vessel</th><th>Category</th>${head}</tr></thead><tbody>${rows}</tbody></table>` : `<div class="sub">${empty}</div>`;
+    const nCols = head => (head.match(/<th/g) || []).length;
+    const table = (head, items, empty) => {
+      if (!items.length) return `<div class="sub">${empty}</div>`;
+      const cats = catOrder.concat([...new Set(items.map(x => catOf(x[0])))].filter(c => !catOrder.includes(c)));
+      const body = cats.map(c => { const its = items.filter(x => catOf(x[0]) === c); if (!its.length) return '';
+        return `<tr class="cgrp"><td colspan="${nCols(head) + 3}">${dot(its[0][0])}${esc(c)} <span class="sub">· ${its.length}</span></td></tr>` + its.map(x => x[1]).join(''); }).join('');
+      return `<table><thead><tr><th>Code</th><th>Vessel</th><th>Category</th>${head}</tr></thead><tbody>${body}</tbody></table>`; };
     const pct = v => Math.round(100 * Math.min(v._p.days, REQ_DAYS) / REQ_DAYS);
     body.innerHTML = `<div class="cmpwrap">
-      ${from <= today ? `<h3>Completed ${esc(to > today ? dShort(from) + ' – today' : label)} · ${done.length}</h3>${table('<th>Completed on</th>', done.map(x => row(x.v, `<td>${esc(yr(x.d))}</td>`)).join(''), 'None in this range.')}` : ''}
+      ${from <= today ? `<h3>Completed ${esc(to > today ? dShort(from) + ' – today' : label)} · ${done.length}</h3>${table('<th>Completed on</th>', done.map(x => [x.v, row(x.v, `<td>${esc(yr(x.d))}</td>`)]), 'None in this range.')}` : ''}
       ${to > today ? `<h3>Expected to complete ${esc(futLabel)} · ${due.length}</h3>${table('<th class="num">Days</th><th>Expected</th><th>Note</th>',
-        due.map(v => row(v, `<td class="num">${v._p.days}</td><td>${esc(yr(v._p.expectedEnd))}</td><td>${v._p.status === 'onboard' ? '' : (v._p.days > 0 ? 'after resume ' : 'starts ') + esc(dShort(v._p.nextStart))}</td>`)).join(''), 'None expected in this range.')}` : ''}
-      <h3>Expected completion (on board, soonest first) · ${onb.length}</h3>${table('<th class="num">Days</th><th class="num">Left</th><th>Expected</th><th>Progress</th>',
-        onb.map(v => row(v, `<td class="num">${v._p.days}</td><td class="num">${Math.max(0, Math.round((v._p.expectedEnd - today) / DAY))}</td><td>${esc(dShort(v._p.expectedEnd))} ${new Date(v._p.expectedEnd).getUTCFullYear()}</td><td><span class="bar"><i style="width:${pct(v)}%"></i></span>${pct(v)}%</td>`)).join(''), 'No codes on board.')}
+        due.map(v => [v, row(v, `<td class="num">${v._p.days}</td><td>${esc(yr(v._p.expectedEnd))}</td><td>${v._p.status === 'onboard' ? '' : (v._p.days > 0 ? 'after resume ' : 'starts ') + esc(dShort(v._p.nextStart))}</td>`)]), 'None expected in this range.')}` : ''}
+      <details class="cmpgrp"${to > today ? '' : ' open'}><summary><h3>Expected completion (on board, soonest first) · ${onb.length}</h3></summary>${table('<th class="num">Days</th><th class="num">Left</th><th>Expected</th><th>Progress</th>',
+        onb.map(v => [v, row(v, `<td class="num">${v._p.days}</td><td class="num">${Math.max(0, Math.round((v._p.expectedEnd - today) / DAY))}</td><td>${esc(dShort(v._p.expectedEnd))} ${new Date(v._p.expectedEnd).getUTCFullYear()}</td><td><span class="bar"><i style="width:${pct(v)}%"></i></span>${pct(v)}%</td>`)]), 'No codes on board.')}</details>
       <h3>Paused · ${off.length}</h3>${table('<th class="num">Days</th><th>Paused since</th><th>Resumes</th>',
-        off.map(v => row(v, `<td class="num">${v._p.days}</td><td>${v._p.pausedSince ? esc(dShort(v._p.pausedSince)) : ''}</td><td>${v._p.nextStart ? esc(dShort(v._p.nextStart)) + (v._p.expectedEnd ? ' (exp. ' + esc(dShort(v._p.expectedEnd)) + ')' : '') : '<span class="sub">not set</span>'}</td>`)).join(''), 'None.')}</div>`;
+        off.map(v => [v, row(v, `<td class="num">${v._p.days}</td><td>${v._p.pausedSince ? esc(dShort(v._p.pausedSince)) : ''}</td><td>${v._p.nextStart ? esc(dShort(v._p.nextStart)) + (v._p.expectedEnd ? ' (exp. ' + esc(dShort(v._p.expectedEnd)) + ')' : '') : '<span class="sub">not set</span>'}</td>`)]), 'None.')}</div>`;
     body.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => select(tr.dataset.id));
   }
 

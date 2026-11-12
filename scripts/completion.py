@@ -49,29 +49,45 @@ def section(g, range_label, colours=None, heading="Completion"):
                 f'vertical-align:middle;margin-right:6px"><span style="display:block;width:{pct}%;height:100%;'
                 f'border-radius:3px;background:#0b4f7a"></span></span>{pct}%')
 
-    rows_c = "".join(f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
-                     f'<td>{d:%d %b %Y}</td></tr>' for d, v in g["completed"])
-    rows_e = "".join(f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
+    rows_c = [(v, f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
+                     f'<td>{d:%d %b %Y}</td></tr>') for d, v in g["completed"]]
+    rows_e = [(v, f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
                      f'<td class=num>{days}</td><td class=num>{max(0, (d - today).days)}</td><td>{d:%d %b %Y}</td>'
-                     f'<td>{bar(days)}</td></tr>' for d, v, days in g["expected"])
+                     f'<td>{bar(days)}</td></tr>') for d, v, days in g["expected"]]
     def paused_row(v, p):
         off = f'{p["paused_since"]:%d %b %Y}' if p.get("paused_since") else ""
         nxt = (f'{p["next_start"]:%d %b %Y} (exp. {p["expected_end"]:%d %b %Y})'
                if p.get("next_start") and p.get("expected_end") else '<span class="sub">not set</span>')
         return (f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
                 f'<td class=num>{p["days"]}</td><td>{off}</td><td>{nxt}</td></tr>')
-    rows_p = "".join(paused_row(v, p) for v, p in g["paused"])
+    rows_p = [(v, paused_row(v, p)) for v, p in g["paused"]]
 
     def note(p):
         if p["status"] == "onboard":
             return ""
         return ("after resume " if p["days"] > 0 else "starts ") + f'{p["next_start"]:%d %b %Y}'
-    rows_d = "".join(f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
-                     f'<td class=num>{p["days"]}</td><td>{d:%d %b %Y}</td><td>{e(note(p))}</td></tr>' for d, v, p in g["due"])
+    rows_d = [(v, f'<tr><td>{dot(v)}<b>{e(v["id"])}</b></td><td>{e(v["vessel_name"])}</td><td>{e(_cat(v))}</td>'
+                     f'<td class=num>{p["days"]}</td><td>{d:%d %b %Y}</td><td>{e(note(p))}</td></tr>') for d, v, p in g["due"]]
     future = g["end"] > today
     fut_label = f'{g["fut0"]:%d %b %Y} – {g["end"]:%d %b %Y}'
 
+    def bycat(items, head):
+        cols = head.count("<th")
+        order = []
+        for v, _ in items:
+            if _cat(v) not in order:
+                order.append(_cat(v))
+        order.sort(key=lambda c: (c == "No category", "TS" in c.split(), c))
+        out = ""
+        for c in order:
+            its = [h for v, h in items if _cat(v) == c]
+            out += (f'<tr><td colspan="{cols}" style="font-weight:700;padding-top:8px;border-bottom:1px solid #d5dde5">'
+                    f'<span class="dot" style="background:{colours.get(c, "#8a96a0")}"></span>{e(c)} '
+                    f'<span class="sub">· {len(its)}</span></td></tr>' + "".join(its))
+        return out
+
     def grp(title, n, head, rows, empty, open_=True):
+        rows = bycat(rows, head) if rows else ""
         body = (f'<div class="tablewrap" style="padding:0 0 8px 18px"><table class="small" style="min-width:0;white-space:nowrap"><thead><tr>{head}'
                 f'</tr></thead><tbody>{rows}</tbody></table></div>') if rows else f'<p class="sub" style="margin:4px 0 10px 18px">{empty}</p>'
         return f'<details class="grp"{" open" if open_ else ""}><summary><b>{title}</b> <span class="sub">· {n}</span></summary>{body}</details>'
@@ -90,7 +106,7 @@ def section(g, range_label, colours=None, heading="Completion"):
                    rows_d, "None expected in this range.") if future else '')
             + grp("Expected completion (still on board, soonest first)", n_e,
                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days on board</th><th class=num>Days left</th>"
-                  "<th>Expected</th><th>Progress</th>", rows_e, "No codes on board.")
+                  "<th>Expected</th><th>Progress</th>", rows_e, "No codes on board.", open_=not future)
             + grp("Paused", n_p,
                   "<th>Code</th><th>Vessel</th><th>Category</th><th class=num>Days so far</th><th>Paused since</th><th>Resumes</th>",
                   rows_p, "None.", open_=bool(n_p))
