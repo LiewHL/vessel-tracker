@@ -1,10 +1,10 @@
 import html
 import json
 import os
-from datetime import timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
-from common import ROOT, read_json
-from insights import port_calls
+from common import NEAR_NM, ROOT, nearest_port, read_json
+from insights import _stopped, port_calls
 
 SGT = timezone(timedelta(hours=8))
 GEO_FILE = os.path.join(ROOT, "assets", "countries.geojson")
@@ -22,6 +22,56 @@ def _on_board(v, t):
     return any(s["start"] <= d and (s["end"] is None or d <= s["end"]) for s in stints)
 
 
+SG = "Singapore"
+SG_POS = (1.26, 103.84)
+SG_NAMES = {"singapore", "sg", "sin", "sgsin", "spore", "s'pore"}
+
+
+def _sgt_day(t):
+    return t.astimezone(SGT).date()
+
+
+def _sg_named(text):
+    t = (text or "").strip().lower()
+    return None if not t else (t in SG_NAMES or t.startswith("singapore"))
+
+
+def _sg_fix(fixes, d):
+    """A stopped position at or off Singapore on SGT date d, if any."""
+    for f in fixes:
+        if _sgt_day(f["t"]) != d or not _stopped(f):
+            continue
+        np_ = nearest_port(f["lat"], f["lon"])
+        if np_ and np_[1] == SG and np_[2] <= NEAR_NM:
+            return f
+    return None
+
+
+def edge_visits(v, fixes, real, start=None, end=None):
+    """Start or end of a period in Singapore: from the start_port / end_port column, else from the ship's position that day."""
+    out, today = [], datetime.now(SGT).date()
+    sg_days = {_sgt_day(c["start"]) for c in real if c["country"] == SG} | {_sgt_day(c["end"]) for c in real if c["country"] == SG}
+    for st in v.get("stints", []):
+        for d, col, kind in ((st.get("start"), st.get("start_port"), "Start of period"),
+                             (st.get("end"), st.get("end_port"), "End of period")):
+            if not d or d > today or d in sg_days:
+                continue
+            named = _sg_named(col)
+            if named is False:
+                continue
+            f = _sg_fix(fixes, d) if named is None else None
+            if named is None and not f:
+                continue
+            t = f["t"] if f else datetime.combine(d, time(12), SGT)
+            if (start and t < start) or (end and t > end):
+                continue
+            lat, lon = (f["lat"], f["lon"]) if f else SG_POS
+            out.append({"kind": kind, "place": SG, "country": SG, "start": t, "end": t, "departed": None,
+                        "hours": 0.0, "fixes": 0, "lat": lat, "lon": lon})
+            sg_days.add(d)
+    return out
+
+
 def visits(v, fixes, start=None, end=None):
     out = []
     for c in port_calls(fixes):
@@ -32,7 +82,7 @@ def visits(v, fixes, start=None, end=None):
         if not _on_board(v, c["start"]):
             continue
         out.append(c)
-    return out
+    return sorted(out + edge_visits(v, fixes, out, start, end), key=lambda c: c["start"])
 
 
 def stay_hours(c):
@@ -231,11 +281,11 @@ XLSX_HEADER = ["Code", "Vessel", "Category", "Country", "Port", "Type", "Arrived
                "Departed (first logged under way, SGT)", "Time in port (h, approx.)"]
 
 
-ASEAN = ["Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar", "Philippines", "Thailand",
+ASEAN = ["Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia", "Myanmar", "Philippines", "Singapore", "Thailand",
          "Timor-Leste", "Vietnam"]
 CHINA = ["China", "Hong Kong", "Macao"]
 ACI_KEYS = ["ASEAN", "China", "India", "Any"]
-ACI_LABEL = {"ASEAN": "ASEAN (excl. Singapore)", "China": "China (incl. Hong Kong, Macao)", "India": "India",
+ACI_LABEL = {"ASEAN": "ASEAN (incl. Singapore)", "China": "China (incl. Hong Kong, Macao)", "India": "India",
              "Any": "Any of these"}
 
 
@@ -293,8 +343,8 @@ def aci_block(ships_all, colours, rank, open_cat="", ships_now=None, now_label="
     note = "Counts are IDs, whole period to date unless stated; standby places are not counted."
     if c_now:
         note += f" Bold = also counted in the “{e(now_label)}” column."
-    out.append(f'<p class="sub" style="margin-top:8px">{note} Singapore is not counted as ASEAN; China includes Hong Kong '
-               'and Macao; Taiwan is not counted.</p>')
+    out.append(f'<p class="sub" style="margin-top:8px">{note} ASEAN includes Singapore (also a start or end of period there); '
+               'China includes Hong Kong and Macao; Taiwan is not counted.</p>')
     return "".join(out)
 
 

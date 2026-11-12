@@ -255,7 +255,7 @@ def build(kind="weekly", ref=None, month=None):
     if kind in ("monthly", "quarterly"):
         g = completion.gather(roster, p_start, p_end, today)
         lines += [""] + completion.summary_lines(g, period_label(kind, period))
-    lines += ["", f"ASEAN (excl. Singapore) / China / India — IDs that called there (this {w}; to date):"]
+    lines += ["", f"ASEAN (incl. Singapore) / China / India — IDs that called there (this {w}; to date):"]
     lines += [f"- {ctry.ACI_LABEL[k]}: {c_now[k]} of {len(now_ships)}; {c_all[k]} of {len(rows)}" for k in ctry.ACI_KEYS]
     if follow_up:
         lines += ["", "Ships to follow up (no recent position): "
@@ -456,7 +456,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
             "Last position (SGT)": fmt_sgt(seen) if seen else "", "Position": pos if has_pos else "", "Place": place,
             f"Days heard this {w}": r["days"], f"Port calls this {w}": len(r["calls"]),
             "Countries visited (to date)": ", ".join(ctry.country_names(r["visits_all"])),
-            "ASEAN (excl. Singapore)": ", ".join(aci["ASEAN"]), "China (incl. HK, Macao)": ", ".join(aci["China"]),
+            "ASEAN (incl. Singapore)": ", ".join(aci["ASEAN"]), "China (incl. HK, Macao)": ", ".join(aci["China"]),
             "India": "Yes" if aci["India"] else "",
         })
         g = groups.setdefault(cat, {"rows": [], "heard": 0})

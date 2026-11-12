@@ -71,7 +71,7 @@ def export_rows(ships):
         out.append({"Code": s["id"], "Category": s["cat"], "Vessel": s["name"],
                     "Countries visited": ", ".join(ctry.country_names(s["calls"])),
                     "Port calls": len(s["calls"]),
-                    "ASEAN (excl. Singapore)": ", ".join(a["ASEAN"]), "China (incl. HK, Macao)": ", ".join(a["China"]),
+                    "ASEAN (incl. Singapore)": ", ".join(a["ASEAN"]), "China (incl. HK, Macao)": ", ".join(a["China"]),
                     "India": "Yes" if a["India"] else ""})
     return out
 
@@ -150,7 +150,7 @@ def on_demand(a):
           f"- Port calls: {sum(len(s['calls']) for s in ships)}", ""]
     md += [f"- {c}: {n} ship{'s' if n != 1 else ''}, {k} call{'s' if k != 1 else ''}" for c, n, k in ctry.ranking(ships)]
     c_all = ctry.aci_counts(to_date)
-    md += ["", f"ASEAN (excl. Singapore) / China / India — IDs that called there{' (selected period; to date)' if start else ' (to date)'}:"]
+    md += ["", f"ASEAN (incl. Singapore) / China / India — IDs that called there{' (selected period; to date)' if start else ' (to date)'}:"]
     if start:
         now_set = [s for s in ships if s.get("active", True)]
         c_now = ctry.aci_counts(now_set)
@@ -214,7 +214,7 @@ def period_end(a):
           f"- Started {first:%d %b %Y}; completed {done:%d %b %Y}",
           f"- Countries visited (port calls): {len(bc)}" + (f" — {', '.join(bc)}" if bc else ""),
           f"- Port calls: {len(s['calls'])}",
-          f"- {ctry.aci_line(s['calls'])} (Singapore not counted as ASEAN; China includes Hong Kong and Macao; Taiwan not counted)", "",
+          f"- {ctry.aci_line(s['calls'])} (ASEAN includes Singapore, also a start or end of period there; China includes Hong Kong and Macao; Taiwan not counted)", "",
           "The full summary (map, countries, port calls) is attached."]
     save(fname, page(f"End of Period · {v['id']}", f"{v['vessel_name']} · {first:%d %b %Y} – {done:%d %b %Y}",
                      [(len(bc), "Countries visited"), (len(s["calls"]), "Port calls"),

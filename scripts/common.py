@@ -135,7 +135,8 @@ def load_roster(include_standby=False, today=None):
         cur = (started[-1] if started else stints[0])["row"]
         v = dict(cur)
         v["stints"] = [{"start": s["start"], "end": s["end"], "vessel_name": s["row"].get("vessel_name", ""),
-                        "imo": s["row"]["imo"], "mmsi": s["row"]["mmsi"]} for s in stints]
+                        "imo": s["row"]["imo"], "mmsi": s["row"]["mmsi"],
+                        "start_port": s["row"].get("start_port", ""), "end_port": s["row"].get("end_port", "")} for s in stints]
         v["period"] = period_info(v["stints"], today)
         firsts = [s["start"] for s in stints if s["start"]]
         v["start_date"] = firsts[0].isoformat() if firsts else ""

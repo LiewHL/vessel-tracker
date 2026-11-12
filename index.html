@@ -476,7 +476,30 @@
     const d = dParse(sgtDate(t));
     return st.some(s => s.start <= d && (isNaN(s.end) || d <= s.end));
   }
-  const visitsOf = (v, all) => portCalls(all).filter(c => (c.kind === 'Berthed' || c.kind === 'At anchor') && c.country && onBoard(v, c.start));
+  const SG_NAMES = ['singapore', 'sg', 'sin', 'sgsin', 'spore', "s'pore"];
+  const sgNamed = t => { t = (t || '').trim().toLowerCase(); return t ? SG_NAMES.includes(t) || t.startsWith('singapore') : null; };
+  function edgeVisits(v, all, real) {
+    const today = dParse(sgtDate(Date.now())), out = [];
+    const days = new Set(real.filter(c => c.country === 'Singapore').flatMap(c => [sgtDate(c.start), sgtDate(c.end)]));
+    (v._stints || []).forEach(s => [[s.start, s.sp, 'Start of period'], [s.end, s.ep, 'End of period']].forEach(([d, col, kind]) => {
+      if (isNaN(d) || d > today) return;
+      const ds = new Date(d).toISOString().slice(0, 10); if (days.has(ds)) return;
+      const named = sgNamed(col); if (named === false) return;
+      const f = named ? null : all.find(x => {
+        if (sgtDate(x.t) !== ds) return false;
+        const st = (x.st || '').toLowerCase(), sp = x.sp === '' || x.sp == null ? null : Number(x.sp);
+        if (!(st === 'moored' || st === 'at anchor' || (sp != null && sp < 0.5))) return false;
+        const np = nearestPort(x.lat, x.lon); return np && np.country === 'Singapore' && np.dist <= NEAR_NM;
+      });
+      if (!named && !f) return;
+      const t = f ? f.t : Date.parse(ds + 'T12:00:00+08:00');
+      out.push({ kind, place:'Singapore', country:'Singapore', start:t, end:t, departed:null, lat:f ? f.lat : 1.26, lon:f ? f.lon : 103.84 });
+      days.add(ds);
+    }));
+    return out;
+  }
+  const visitsOf = (v, all) => { const real = portCalls(all).filter(c => (c.kind === 'Berthed' || c.kind === 'At anchor') && c.country && onBoard(v, c.start));
+    return real.concat(edgeVisits(v, all, real)).sort((a, b) => a.start - b.start); };
   function byCountry(calls) {
     const out = new Map();
     calls.forEach(c => {
@@ -1183,17 +1206,17 @@
     if (allPts.length && L.latLngBounds) m.fitBounds(L.latLngBounds(allPts), { padding:[30, 30], maxZoom:cv.startsWith('s:') ? 6 : 5 });
     const n = Object.keys(count).length;
     const info = document.createElement('div'); info.className = 'tinfo';
-    const ASEAN = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Thailand', 'Timor-Leste', 'Vietnam'];
+    const ASEAN = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam'];
     const aciOf = id => { const ks = [...(perShip[id] || new Map()).keys()]; const a = ks.filter(c => ASEAN.includes(c)); return { a, c:ks.filter(c => ['China', 'Hong Kong', 'Macao'].includes(c)), i:ks.includes('India') }; };
     const aci = { a:0, c:0, i:0, any:0 }, aciTxt = {};
     ships.forEach(x => { const h = aciOf(x.v.id); aci.a += h.a.length ? 1 : 0; aci.c += h.c.length ? 1 : 0; aci.i += h.i ? 1 : 0; aci.any += (h.a.length || h.c.length || h.i) ? 1 : 0;
       aciTxt[x.v.id] = [h.a.join(', '), h.c.join(', '), h.i ? 'India' : ''].filter(Boolean).join(' · '); });
-    const nStud = pick.length, aciTip = `Called at — ASEAN (excl. Singapore): ${aci.a} · China (incl. Hong Kong, Macao): ${aci.c} · India: ${aci.i} · any: ${aci.any} of ${nStud}`;
+    const nStud = pick.length, aciTip = `Called at — ASEAN (incl. Singapore): ${aci.a} · China (incl. Hong Kong, Macao): ${aci.c} · India: ${aci.i} · any: ${aci.any} of ${nStud}`;
     info.innerHTML = `<span>${n} countr${n === 1 ? 'y' : 'ies'} · ${ships.length} ship${ships.length === 1 ? '' : 's'}</span><span title="${esc(aciTip)}">ASEAN ${aci.a} · China ${aci.c} · India ${aci.i} <span style="opacity:.75">&nbsp;of ${nStud}</span></span><button class="hbtn" type="button" aria-expanded="false">List ▾</button>`;
     p.el.querySelector('.ptool').appendChild(info);
     const rowsHtml = ships.flatMap(x => [...perShip[x.v.id].entries()].map(([c, e]) => `<tr><td><b>${esc(x.v.id)}</b></td><td>${esc(c)}</td><td>${esc(e.ports.join(', '))}</td><td>${e.calls}</td><td>${esc(fmtH(e.hours))}</td></tr>`)).join('');
     const aciRows = ships.filter(x => aciTxt[x.v.id]).map(x => `<tr><td><b>${esc(x.v.id)}</b></td><td colspan="4">${esc(aciTxt[x.v.id])}</td></tr>`).join('');
-    const aciHtml = `<div class="sub" style="padding:6px 8px">${esc(aciTip)}. Singapore is not counted as ASEAN; China includes Hong Kong and Macao; Taiwan is not counted.</div>`
+    const aciHtml = `<div class="sub" style="padding:6px 8px">${esc(aciTip)}. ASEAN includes Singapore (also a start or end of period there); China includes Hong Kong and Macao; Taiwan is not counted.</div>`
       + (aciRows ? `<table><thead><tr><th>ID</th><th colspan="4">ASEAN · China · India</th></tr></thead><tbody>${aciRows}</tbody></table>` : '');
     const list = document.createElement('div'); list.className = 'overlay plist'; list.hidden = true;
     list.innerHTML = (rowsHtml ? `<table><thead><tr><th>ID</th><th>Country</th><th>Ports</th><th>Calls</th><th>In port</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
@@ -1328,7 +1351,7 @@
         .sort((a, b) => (isNaN(a.start) ? Infinity : a.start) - (isNaN(b.start) ? Infinity : b.start));
       const started = stints.filter(s => !isNaN(s.start) && s.start <= todayD), cur = (started[started.length - 1] || stints[0]).row;
       const v = Object.assign({}, cur);
-      v._stints = stints.map(s => ({ start:s.start, end:s.end, vessel:s.row.vessel_name }));
+      v._stints = stints.map(s => ({ start:s.start, end:s.end, vessel:s.row.vessel_name, sp:s.row.start_port, ep:s.row.end_port }));
       v._p = periodInfo(v._stints);
       return v;
     });
