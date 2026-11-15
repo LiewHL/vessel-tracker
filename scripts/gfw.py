@@ -17,9 +17,8 @@ EVERY_H = 20
 MAX_DAYS = 400
 MIN_CONF = 3
 STEP_H = 24
-NEAR_AIS_NM = 20
-NEAR_AIS_H = 6
-VERSION = 2
+QUIET_H = 36
+VERSION = 3
 
 
 def gtime(t):
@@ -41,12 +40,22 @@ def call(path, params, token):
         return json.load(r)
 
 
-def vessel_ids(mmsi, token):
+def _norm(x):
+    return "".join(ch for ch in str(x or "").upper() if ch.isalnum())
+
+
+def vessel_ids(mmsi, imo, name, token):
+    """GFW ids for this MMSI, keeping only identities that match the IMO or name (an MMSI can be reused by another ship)."""
     d = call("/vessels/search", {"query": mmsi, "datasets[0]": "public-global-vessel-identity:latest"}, token)
     ids = []
     for e in d.get("entries") or []:
+        imos = {_norm(r.get("imo")) for r in (e.get("registryInfo") or []) if r.get("imo")}
         for s in e.get("selfReportedInfo") or []:
-            if str(s.get("ssvid")) == mmsi and s.get("id") and s["id"] not in ids:
+            if str(s.get("ssvid")) != mmsi or not s.get("id") or s["id"] in ids:
+                continue
+            same_imo = imo and (_norm(s.get("imo")) == imo or imo in imos)
+            same_name = name and _norm(s.get("shipname")) == name
+            if same_imo or same_name:
                 ids.append(s["id"])
     return ids
 
@@ -90,7 +99,8 @@ def windows(today):
             e = today
         if not m.isdigit() or s > today or e < floor:
             continue
-        out.setdefault(m, []).append((r.get("id", "").strip(), r.get("vessel_name", "").strip(), max(s, floor), min(e, today)))
+        out.setdefault(m, []).append((r.get("id", "").strip(), r.get("vessel_name", "").strip(), max(s, floor), min(e, today),
+                                      _norm(r.get("imo")), _norm(r.get("vessel_name"))))
     return out
 
 
@@ -105,9 +115,10 @@ def ais_index():
     return by
 
 
-def heard(ais, code, s, e, lat, lon):
-    lo, hi = s - timedelta(hours=NEAR_AIS_H), e + timedelta(hours=NEAR_AIS_H)
-    return any(t and lo <= t <= hi and haversine_nm(lat, lon, a, o) <= NEAR_AIS_NM for t, a, o in ais.get(code, ()))
+def heard(ais, code, s, e):
+    """True when our own AIS has any position within QUIET_H hours of the visit, i.e. the visit is not inside a gap of 3+ days."""
+    lo, hi = s - timedelta(hours=QUIET_H), e + timedelta(hours=QUIET_H)
+    return any(t and lo <= t <= hi for t, _, _ in ais.get(code, ()))
 
 
 def rows_for(visit, code, name, mmsi):
@@ -147,7 +158,7 @@ def main(force=False):
     rows, n_vis, n_kept, failed = [], 0, 0, 0
     for mmsi, per in windows(today).items():
         try:
-            ids = vessel_ids(mmsi, token)
+            ids = vessel_ids(mmsi, per[0][4], per[0][5], token)
             if not ids:
                 continue
             visits = port_visits(ids, min(p[2] for p in per).isoformat(), (today + timedelta(days=1)).isoformat(), token)
@@ -161,11 +172,11 @@ def main(force=False):
             s = gtime(v.get("start"))
             if not s:
                 continue
-            for code, name, ps, pe in per:
+            for code, name, ps, pe, _, _ in per:
                 if not (ps <= s.date() <= pe):
                     continue
                 r, span = rows_for(v, code, name, mmsi)
-                if not r or heard(ais, code, *span):
+                if not r or heard(ais, code, span[0], span[1]):
                     continue
                 rows += r
                 n_kept += 1
