@@ -45,8 +45,8 @@ def main():
         if not ids:
             continue
         found += 1
-        for ds in ("public-global-port-visits-events:latest", "public-global-port-visits-c2-events:latest"):
-            st, d = call("/events", {"datasets[0]": ds, "vessels": ids, "start-date": start, "end-date": end,
+        for ds in ("public-global-port-visits-events:latest", "public-global-gaps-events:latest"):
+            st, d = call("/events", {"datasets[0]": ds, **{f"vessels[{i}]": v for i, v in enumerate(ids)}, "start-date": start, "end-date": end,
                                      "limit": 100, "offset": 0})
             codes.add(f"events[{ds.split(':')[0][-22:]}] {st}")
             if st == 200:
@@ -56,7 +56,6 @@ def main():
                     last_visit = max(last_visit, (x.get("end") or x.get("start") or "")[:10])
                 if ent and not keys_e:
                     keys_e = sorted(ent[0].keys()) + sorted((ent[0].get("port_visit") or {}).keys())
-                break
         flt = "vessel_id in (" + ",".join(f"'{i}'" for i in ids) + ")"
         st, d = call("/4wings/report", {"spatial-resolution": "HIGH", "temporal-resolution": "HOURLY", "group-by": "VESSEL_ID",
                                         "datasets[0]": "public-global-presence:latest", "filters[0]": flt,
