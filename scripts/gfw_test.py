@@ -10,12 +10,17 @@ TOK = os.environ.get("GFW_TOKEN", "")
 def call(path, params=None, body=None):
     url = API + path + ("?" + urllib.parse.urlencode(params, doseq=True) if params else "")
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bearer {TOK}", "Content-Type": "application/json"})
+                                 headers={"Authorization": f"Bearer {TOK}", "Content-Type": "application/json", "User-Agent": "voyage-monitor/1.0", "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=90) as r:
             return r.status, json.load(r)
     except urllib.error.HTTPError as e:
-        return e.code, {}
+        try:
+            j = json.loads(e.read().decode("utf-8", "replace"))
+            msg = j.get("error") or j.get("message") or j.get("messages") or ""
+        except Exception:
+            msg = ""
+        return f"{e.code}:{str(msg)[:80]}", {}
     except Exception as e:
         return type(e).__name__, {}
 
