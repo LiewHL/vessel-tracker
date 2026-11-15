@@ -87,7 +87,7 @@ def load_fixes(positions):
             continue
         by_id[p.get("id", "")].append({
             "t": t, "lat": lat, "lon": lon, "speed_kn": _fnum(p.get("speed_kn")),
-            "nav_status": p.get("nav_status", ""), "destination": p.get("destination", ""),
+            "nav_status": p.get("nav_status", ""), "destination": p.get("destination", ""), "src": p.get("src", ""),
         })
     for fixes in by_id.values():
         fixes.sort(key=lambda f: f["t"])
@@ -160,16 +160,18 @@ def build(kind="weekly", ref=None, month=None):
     total_fixes = heard_ships = 0
     for v in roster:
         history = [f for f in all_fixes.get(v["id"], []) if f["t"] <= as_of]
-        in_period = [f for f in history if f["t"] >= start]
+        own = [f for f in history if not f.get("src")]
+        track = [f for f in history if f["t"] >= start]
+        in_period = [f for f in own if f["t"] >= start]
         if kind == "weekly" and v["id"] in latest:
             info = latest[v["id"]]
             last = {"t": parse_iso(info.get("last_seen_utc")), "lat": info.get("latitude"),
                     "lon": info.get("longitude"), "speed_kn": info.get("speed_kn"),
                     "nav_status": info.get("nav_status", ""), "destination": info.get("destination", "")}
             if last["t"] is None or last["lat"] is None:
-                last = history[-1] if history else None
+                last = own[-1] if own else None
         else:
-            last = history[-1] if history else None
+            last = own[-1] if own else None
         seen = last["t"] if last else None
         state = freshness(seen, as_of)
         counts[state] += 1
@@ -183,7 +185,8 @@ def build(kind="weekly", ref=None, month=None):
             follow_up.append(v)
         calls = [c for c in port_calls(history) if c["end"] >= start and c["start"] <= as_of]
         rows.append({
-            "v": v, "last": last, "seen": seen, "state": state, "track": in_period,
+            "v": v, "last": last, "seen": seen, "state": state, "track": track, "heard": bool(in_period),
+            "last_any": history[-1] if history else None,
             "dist": dist, "days": days_heard, "prog": prog_text, "pct": prog_pct,
             "first": in_period[0] if in_period else None,
             "calls": calls,
@@ -425,11 +428,12 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         v, last, seen = r["v"], r["last"], r["seen"]
         has_pos = bool(last) and last.get("lat") is not None
         pos = fmt_coord(last["lat"], last["lon"]) if has_pos else "—"
-        if has_pos:
+        mpos = last if has_pos else r["last_any"]
+        if mpos:
             map_data.append({
                 "id": v["id"], "name": v["vessel_name"], "state": r["state"],
                 "cat": (v.get("category") or "").strip() or "No category",
-                "lat": last["lat"], "lon": last["lon"],
+                "lat": mpos["lat"], "lon": mpos["lon"],
                 "track": [[f["lat"], f["lon"]] for f in r["track"]],
                 "parts": track_parts(r["track"]),
             })
@@ -460,7 +464,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
             "India": "Yes" if aci["India"] else "",
         })
         g = groups.setdefault(cat, {"rows": [], "heard": 0})
-        g["heard"] += 1 if r["track"] else 0
+        g["heard"] += 1 if r["heard"] else 0
         short_seen = age_text(seen, as_of) if seen else "no position yet"
         places_txt = " → ".join(visited) if visited else ("No port calls" if r["track"] else "—")
         g["rows"].append(f"""

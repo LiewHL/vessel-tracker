@@ -57,7 +57,7 @@ def position_rows(fixes_by_id, roster, start=None, end=None):
             continue
         v = by_id[vid]
         for f in fixes:
-            if (start and f["t"] < start) or (end and f["t"] > end):
+            if f.get("src") or (start and f["t"] < start) or (end and f["t"] > end):
                 continue
             rows.append((f["t"], [
                 sgt(f["t"]), vid, v.get("vessel_name", ""), v.get("category", ""),
@@ -94,8 +94,9 @@ def build_sheets(kind, month=None, ref=None, full_history=True):
     summary, visit_rows = [], []
     for v in roster:
         hist = [f for f in fixes.get(v["id"], []) if f["t"] <= as_of]
-        period = [f for f in hist if f["t"] >= start]
-        last = hist[-1] if hist else None
+        own = [f for f in hist if not f.get("src")]
+        period = [f for f in own if f["t"] >= start]
+        last = own[-1] if own else None
         dist = sum(haversine_nm(a["lat"], a["lon"], b["lat"], b["lon"]) for a, b in zip(period, period[1:]))
         prog, _ = period_progress(v, as_of.astimezone(SGT).date())
         summary.append([
