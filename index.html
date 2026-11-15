@@ -829,7 +829,7 @@
         <td class="idc">${esc(v.id)}</td>
         <td><div class="vn">${v.category ? `<i class="dot" style="background:${catColor(v.category)}" title="${esc(v.category)}"></i>` : ''}${esc(v.vessel_name)}</div>
             <div class="sub">${esc([v.company, v.category].filter(Boolean).join(' · '))}</div>${periodHTML(v, a, 'show-s')}</td>
-        <td class="nowrap"><i class="dot ${v._state}"></i>${p.last_seen_utc ? esc(age(p.last_seen_utc)) : '<span class="sub">none</span>'}${gn ? `<div class="sub" title="Last port visit from Global Fishing Watch (a few days behind); not heard on our own AIS since">${esc(gn)}</div>` : ''}
+        <td class="nowrap"><i class="dot ${v._state}"></i>${p.last_seen_utc ? esc(age(p.last_seen_utc)) : '<span class="sub">none</span>'}${gn ? `<div class="sub" title="Last port visit from Global Fishing Watch (a few days behind); not heard on AIS since">${esc(gn)}</div>` : ''}
             ${p.last_seen_utc ? `<div class="sub">${esc(fmtTime(p.last_seen_utc))}</div>` : ''}
             ${p.longitude != null ? `<div class="sub" title="Approximate ship time (nautical time zone)">Ship ~${esc(shipTime(p.longitude))}</div>` : ''}</td>
         <td>${pp ? esc(v._place || coord(pp.latitude, pp.longitude)) : '<span class="sub">—</span>'}
@@ -1022,7 +1022,7 @@
       const q0 = latest[v.id] || {}, q = posOf(v.id); if (!q || hiddenCats.has(catOf(v))) return;
       const gf = q.gfw;
       p.markers[v.id] = L.circleMarker([q.latitude, q.longitude], { radius:v.id === selectedId ? 9 : 7, color:gf ? dotColor(v) : '#fff', weight:gf ? 3 : 2, fillColor:gf ? '#fff' : dotColor(v), fillOpacity:1 })
-        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}${gf ? '<br><i>Last port visit · Global Fishing Watch (a few days behind)</i>' : ''}<br>${esc(fmtTime(new Date(q.t).toISOString()))} SGT (${esc(age(new Date(q.t).toISOString()))})${gf ? '<br>Our AIS: ' + esc(q0.last_seen_utc ? 'last heard ' + age(q0.last_seen_utc) : 'not heard yet') : ''}<br>Ship time ~${esc(shipTime(q.longitude))}${wxText(v.id) ? '<br>' + esc(wxText(v.id)) : ''}`, { direction:'top' })
+        .bindTooltip(`<b>${esc(v.id)}</b> · ${esc(v.vessel_name)}${v.category ? '<br>' + esc(v.category) : ''}<br>${esc(v._place)}${gf ? '<br><i>Last port visit · Global Fishing Watch (a few days behind)</i>' : ''}<br>${esc(fmtTime(new Date(q.t).toISOString()))} SGT (${esc(age(new Date(q.t).toISOString()))})${gf ? '<br>AIS: ' + esc(q0.last_seen_utc ? 'last heard ' + age(q0.last_seen_utc) : 'not heard yet') : ''}<br>Ship time ~${esc(shipTime(q.longitude))}${wxText(v.id) ? '<br>' + esc(wxText(v.id)) : ''}`, { direction:'top' })
         .on('click', () => select(v.id)).addTo(m);
     });
     const leg = document.createElement('div'); leg.className = 'tinfo'; leg.setAttribute('aria-label', 'Legend');
