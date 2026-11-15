@@ -19,6 +19,18 @@ MIN_CONF = 3
 STEP_H = 24
 NEAR_AIS_NM = 20
 NEAR_AIS_H = 6
+VERSION = 2
+
+
+def gtime(t):
+    """GFW times look like 2026-11-10T02:13:00.000Z; return an aware UTC datetime or None."""
+    if not t:
+        return None
+    try:
+        d = datetime.fromisoformat(str(t).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
 
 
 def call(path, params, token):
@@ -103,7 +115,7 @@ def rows_for(visit, code, name, mmsi):
     pv = visit.get("port_visit") or {}
     anch = pv.get("startAnchorage") or pv.get("endAnchorage") or {}
     lat, lon = pos.get("lat", anch.get("lat")), pos.get("lon", anch.get("lon"))
-    s, e = parse_iso(visit.get("start")), parse_iso(visit.get("end"))
+    s, e = gtime(visit.get("start")), gtime(visit.get("end"))
     if lat is None or lon is None or not s:
         return [], None
     e = e or s
@@ -128,7 +140,7 @@ def main(force=False):
     if not token:
         print("Port visits (GFW): token not set.")
         return 0
-    if not force and prev and now - prev < timedelta(hours=EVERY_H):
+    if not force and prev and old.get("v") == VERSION and now - prev < timedelta(hours=EVERY_H):
         return 0
     today = now.date()
     ais = ais_index()
@@ -146,7 +158,7 @@ def main(force=False):
             if _conf(v) < MIN_CONF:
                 continue
             n_vis += 1
-            s = parse_iso(v.get("start"))
+            s = gtime(v.get("start"))
             if not s:
                 continue
             for code, name, ps, pe in per:
@@ -161,7 +173,7 @@ def main(force=False):
         print(f"Port visits (GFW): not updated ({failed} ship(s) failed); keeping the previous data.")
         return 0
     rows.sort(key=lambda r: (r["id"], r["ais_time_utc"]))
-    write_json(OUT, {"t": iso(now), "source": "Global Fishing Watch", "rows": rows})
+    write_json(OUT, {"t": iso(now), "v": VERSION, "source": "Global Fishing Watch", "rows": rows})
     print(f"Port visits (GFW): {n_vis} visit(s) found, {n_kept} added where our own AIS had no record"
           + (f"; {failed} ship(s) failed" if failed else "") + ".")
     return 0
