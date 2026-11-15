@@ -4,7 +4,7 @@ import sys
 from datetime import timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import haversine_nm, load_roster, now_utc, place_label, places_visited, read_positions
+from common import haversine_nm, load_roster, now_utc, place_label, places_visited, read_positions, read_positions_all
 from weekly_report import period_progress, load_fixes, period_bounds
 from insights import port_calls
 import countries as ctry
@@ -85,7 +85,7 @@ def build_sheets(kind, month=None, ref=None, full_history=True):
     start, end, _period, tag, ndays = period_bounds(kind, ref, month)
     as_of = min(end, ref)
     roster = load_roster()
-    fixes = load_fixes(read_positions())
+    fixes = load_fixes(read_positions_all())
     staff = os.environ.get("ONLY_STAFF", "").strip().upper()
     label = f"{kind}_{tag}" + (f"_{staff}" if staff else "")
 

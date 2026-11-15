@@ -4,7 +4,7 @@ import sys
 from datetime import timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import DATA_DIR, ROOT, haversine_nm, iso, now_utc, parse_iso, read_json, read_positions, write_json
+from common import DATA_DIR, ROOT, haversine_nm, iso, now_utc, parse_iso, read_json, read_positions, read_positions_all, write_json
 
 ROUTES = os.path.join(DATA_DIR, "searoutes.json")
 LAND = os.path.join(ROOT, "assets", "countries.geojson")
@@ -133,7 +133,7 @@ def main():
     saved = read_json(ROUTES, {})
     old = saved.get("routes", {}) if saved.get("v") == VERSION else {}
     routes, new, failed, straight = {}, 0, 0, 0
-    for a, b in gaps(read_positions()):
+    for a, b in gaps(read_positions_all()):
         k = key(a, b)
         if k in routes:
             continue

@@ -16,3 +16,4 @@ vessels.csv
 reports/*.html
 reports/*.md
 reports/index.json
+data/gfw.json

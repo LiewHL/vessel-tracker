@@ -18,7 +18,7 @@ from insights import (
 )
 from common import (
     DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, REQUIRED_DAYS, completion_date, period_info, freshness, haversine_nm, load_roster,
-    now_utc, parse_iso, place_label, places_visited, read_json, read_positions,
+    now_utc, parse_iso, place_label, places_visited, read_json, read_positions, read_positions_all, gfw_credit,
     write_json,
 )
 
@@ -154,7 +154,7 @@ def build(kind="weekly", ref=None, month=None):
     as_of = min(end, ref)
     roster = load_roster()
     latest = read_json(LATEST, {})
-    all_fixes = load_fixes(read_positions())
+    all_fixes = load_fixes(read_positions_all())
 
     rows, counts, follow_up = [], defaultdict(int), []
     total_fixes = heard_ships = 0
@@ -713,7 +713,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
   const arrowHTML = (deg, col) => `<svg width="14" height="14" viewBox="0 0 14 14" style="transform:rotate(${{deg.toFixed(0)}}deg)"><path d="M7 1 L12.5 12 L7 9 L1.5 12 Z" fill="${{col}}" stroke="#fff" stroke-width="1"/></svg>`;
   try {{
     const map = L.map('map', {{worldCopyJump:true}}).setView([5, 105], 3);
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{maxZoom:12, attribution:'Tiles © Esri — Esri, HERE, Garmin, USGS, NGA, and other contributors'}}).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{maxZoom:12, attribution:'Tiles © Esri — Esri, HERE, Garmin, USGS, NGA, and other contributors{gfw_credit()}'}}).addTo(map);
     const pts = [], byId = {{}};
     ships.forEach(s => {{
       const label = s.id + ' · ' + s.name;

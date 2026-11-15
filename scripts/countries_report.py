@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import countries as ctry
 import idtools
 from common import (REPORT_INDEX, REPORTS_DIR, completion_date, load_roster, now_utc,
-                    read_json, read_positions, write_json)
+                    read_json, read_positions, read_positions_all, write_json)
 from insights import active_in, category_colours
 from weekly_report import category_rank, latest_category, load_fixes
 
@@ -118,7 +118,7 @@ def write_xlsx(out_dir, name, ships, aci_all=None, aci_now=None):
 def on_demand(a):
     ref = now_utc()
     roster = load_roster()
-    fixes = load_fixes(read_positions())
+    fixes = load_fixes(read_positions_all())
     start = datetime.combine(date.fromisoformat(a.date_from), datetime.min.time(), SGT) if a.date_from else None
     end = (datetime.combine(date.fromisoformat(a.date_to), datetime.min.time(), SGT) + timedelta(days=1)) if a.date_to else ref
     end = min(end, ref)
@@ -183,7 +183,7 @@ def period_end(a):
         sys.exit(10)
     start = datetime.combine(first, datetime.min.time(), SGT)
     end = datetime.combine(done, datetime.min.time(), SGT) + timedelta(days=1)
-    fixes = load_fixes(read_positions())
+    fixes = load_fixes(read_positions_all())
     ships = gather([v], fixes, start, min(end, ref))
     s = ships[0]
     colours = category_colours(roster)

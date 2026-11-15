@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime, time, timedelta, timezone
 
-from common import NEAR_NM, ROOT, nearest_port, read_json
+from common import NEAR_NM, ROOT, gfw_credit, nearest_port, read_json
 from insights import _stopped, port_calls
 
 SGT = timezone(timedelta(hours=8))
@@ -173,7 +173,7 @@ window.addEventListener('DOMContentLoaded', function() {{
   const ships = {json.dumps(data)}, geo = {json.dumps(geo, separators=(',', ':'))}, catCols = {json.dumps(colours)};
   try {{
     const map = L.map('{mid}', {{worldCopyJump:true}}).setView([15, 60], 2);
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}', {{maxZoom:10, attribution:'Tiles © Esri; countries: Natural Earth'}}).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}', {{maxZoom:10, attribution:'Tiles © Esri; countries: Natural Earth{gfw_credit()}'}}).addTo(map);
     let layer = null, dots = [];
     const sel = document.getElementById('{mid}-view'), info = document.getElementById('{mid}-info');
     function draw() {{

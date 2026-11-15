@@ -175,6 +175,25 @@ def read_positions():
         return []
 
 
+def read_positions_all():
+    """Our own AIS log plus port-visit rows from Global Fishing Watch (data/gfw.json), for reports and maps."""
+    rows = read_positions()
+    try:
+        with open(os.path.join(DATA_DIR, "gfw.json"), encoding="utf-8") as f:
+            rows += json.load(f).get("rows", [])
+    except (OSError, ValueError):
+        pass
+    return rows
+
+
+def gfw_credit():
+    try:
+        with open(os.path.join(DATA_DIR, "gfw.json"), encoding="utf-8") as f:
+            return " · Port visits: Global Fishing Watch" if json.load(f).get("rows") else ""
+    except (OSError, ValueError):
+        return ""
+
+
 def append_positions(rows):
     os.makedirs(DATA_DIR, exist_ok=True)
     new_file = not os.path.exists(POSITIONS) or os.path.getsize(POSITIONS) == 0

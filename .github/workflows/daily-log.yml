@@ -97,6 +97,13 @@ jobs:
         continue-on-error: true
         run: python scripts/environment.py
 
+      - name: Port visits (Global Fishing Watch, once a day)
+        if: steps.open.outcome == 'success'
+        continue-on-error: true
+        env:
+          GFW_TOKEN: ${{ secrets.GFW_TOKEN }}
+        run: python scripts/gfw.py
+
       - name: Sea routes for gaps
         if: steps.open.outcome == 'success'
         continue-on-error: true
