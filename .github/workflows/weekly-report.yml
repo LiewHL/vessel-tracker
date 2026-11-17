@@ -17,6 +17,9 @@ on:
       staff:
         description: "Also email staff copies? (yes / no)"
         default: "yes"
+      with_if:
+        description: "With send_to: also send that person their own IF copy? (yes / no)"
+        default: "no"
 
 permissions:
   contents: write
@@ -155,3 +158,23 @@ jobs:
             rm -f "reports/$FILE" "$MD"
           done
           echo "Staff copies sent: $n"
+
+      - name: Also send the requester their IF copy
+        if: steps.mail.outputs.sent == 'yes' && github.event.inputs.send_to != '' && github.event.inputs.with_if == 'yes'
+        continue-on-error: true
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          STAFF_EMAILS: ${{ secrets.STAFF_EMAILS }}
+          S: ${{ github.event.inputs.send_to }}
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          SITE="https://${OWNER,,}.github.io/${REPO}"
+          ONLY_STAFF=$S python scripts/weekly_report.py > "$RUNNER_TEMP/s-$S.json"
+          FILE=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['file'])" "$RUNNER_TEMP/s-$S.json")
+          PERIOD=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/s-$S.json")
+          MD=$(ls reports/latest-*summary-$S.md | head -1)
+          python scripts/send_email.py "$MD" "reports/$FILE" "Weekly report (IF $S): $PERIOD" "$SITE/" "" --to "$S" && echo "IF copy sent."
