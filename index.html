@@ -55,6 +55,9 @@
   .sendrow select, .sendrow input { font:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--line); border-radius:7px;
                                     background:var(--card); color:var(--ink); min-width:0; }
   .sendrow input { flex:1 1 140px; }
+  #sendDates { display:inline-flex; gap:6px; align-items:center; }
+  #sendDates[hidden] { display:none; }
+  #sendDates input { flex:0 0 auto; width:auto; }
   #sendMsg.ok { color:var(--fresh); } #sendMsg.bad { color:var(--old); }
   .banner { background:color-mix(in srgb, var(--stale) 14%, var(--card)); border-bottom:1px solid color-mix(in srgb, var(--stale) 40%, transparent);
             padding:7px 14px; display:none; font-size:12px; }
@@ -257,8 +260,9 @@
   <button class="hbtn" id="lockBtn" hidden title="Forget the passcode on this device and lock the dashboard" aria-label="Lock"><svg class="lk-ic" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="lk-tx"> Lock</span></button>
   <button class="hbtn" id="sendBtn" hidden aria-expanded="false" aria-controls="sendPop" title="Email a report to the SP address linked to your Send code">Send</button>
   <div class="popover" id="sendPop">
-    <h2>Send the weekly report (SIF) by email</h2>
-    <div class="sendrow">
+    <h2>Send a report by email</h2>
+    <div class="sendrow"><select id="sendKind" aria-label="Report"><option value="weekly">Weekly (SIF, last 7 days)</option><option value="aci">ACI &amp; completion (dates)</option></select>
+      <span id="sendDates" hidden><input type="date" id="sendFrom" aria-label="From"> – <input type="date" id="sendTo" aria-label="To"></span>
       <input id="sendCode" type="password" autocomplete="off" placeholder="Your Send code" aria-label="Your Send code">
       <button class="hbtn" id="sendGo" type="button">Send</button></div>
     <div class="foot" id="sendMsg">The report goes to the SP email linked to your Send code (at most 5 a day). No copy is kept.</div>
@@ -306,7 +310,7 @@
   const CAT_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'];
   const CAT_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
   const NEAR_NM = 30, DIRS = ['N','NE','E','SE','S','SW','W','NW'];
-  const MODES = { fleet:'Fleet map', route:'Vessel route / history', timeline:'Timeline (periods)', countries:'Countries visited', completion:'Completion' };
+  const MODES = { fleet:'Fleet map', route:'Vessel route / history', timeline:'Timeline (periods)', countries:'Countries visited', completion:'Completion', aci:'ACI & completion' };
 
   let locode = {};
   let vessels = [], standby = [], latest = {}, ports = null, positionsPromise = null, catOrder = [], mids = {};
@@ -717,7 +721,7 @@
   $('runPill').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRun(); } };
   function banner(html) { const b = $('banner'); b.style.display = 'block'; b.innerHTML += (b.innerHTML ? '<br>' : '') + html; }
   function renderReports(list) {
-    const names = { completion:'Completion', quarterly:'Quarterly', monthly:'Monthly', countries:'Countries', period_end:'End of period', weekly:'Weekly (SIF)' };
+    const names = { completion:'Completion', quarterly:'Quarterly', monthly:'Monthly', countries:'Countries', period_end:'End of period', weekly:'Weekly (SIF)', aci:'ACI & completion' };
     const since = Date.now() - 30 * 864e5;
     const sent = list.filter(r => r.sent && Date.parse(r.sent) >= since).sort((a, b) => Date.parse(b.sent) - Date.parse(a.sent));
     $('reports').innerHTML = sent.length
@@ -737,13 +741,19 @@
     btn.onclick = e => { e.stopPropagation(); const o = pop.classList.toggle('open'); btn.setAttribute('aria-expanded', o); if (o) $('sendCode').focus(); };
     document.addEventListener('click', e => { if (!pop.contains(e.target) && e.target !== btn) { pop.classList.remove('open'); btn.setAttribute('aria-expanded', false); } });
     $('sendCode').onkeydown = e => { if (e.key === 'Enter') go.click(); };
+    const sd = () => { const on = $('sendKind').value === 'aci'; $('sendDates').hidden = !on;
+      if (on && !$('sendFrom').value) { const t = sgtDate(Date.now()), d = new Date(dParse(t)); $('sendFrom').value = t.slice(0, 8) + '01';
+        $('sendTo').value = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 0)).toISOString().slice(0, 10); } };
+    $('sendKind').onchange = sd; sd();
     const H = { Accept:'application/vnd.github+json', Authorization:'Bearer ' + cfg.key, 'X-GitHub-Api-Version':'2022-11-28' };
     const base = 'https://api.github.com/repos/' + cfg.repo + '/actions/workflows/send.yml';
     const wait = ms => new Promise(r => setTimeout(r, ms));
     go.onclick = async () => {
-      const kind = 'weekly', code = $('sendCode').value.trim(), name = 'weekly (SIF)';
+      const kind = $('sendKind').value, code = $('sendCode').value.trim(), name = kind === 'aci' ? 'ACI & completion' : 'weekly (SIF)';
       if (!code) { say('Enter your Send code.', 'bad'); return; }
       const inputs = { report:kind, code };
+      if (kind === 'aci') { inputs.from = $('sendFrom').value; inputs.to = $('sendTo').value;
+        if (!inputs.from || !inputs.to || inputs.to < inputs.from) { say('Pick a From date on or before the To date.', 'bad'); return; } }
       go.disabled = true; say('Sending the request…');
       const t0 = Date.now();
       try {
@@ -936,7 +946,7 @@
       const cs = p.cship && shipById(p.cship);
       if (cs) tools += `<span class="cchip" title="Showing this ship only">${esc(cs.id)} · ${esc(cs.vessel_name)}<button type="button" class="cclr" aria-label="Show the group again" title="Show the group again">✕</button></span>`;
       tools += `<div class="seg" role="group" aria-label="Period">${[['att', 'Period'], ['30', '30 d'], ['7', '7 d']].map(([k, l]) => `<button data-cr="${k}" class="${(p.crange || 'att') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-    } else if (p.mode === 'completion') {
+    } else if (p.mode === 'completion' || p.mode === 'aci') {
       const cr = p.comp || 'm';
       tools += `<select class="ccat" aria-label="Category"><option value="">All categories</option>${catOrder.filter(c => vessels.some(v => catOf(v) === c)).map(c => `<option value="${esc(c)}" ${p.ccat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
       tools += `<div class="seg" role="group" aria-label="Completed in">${[['lq', 'Last quarter'], ['lm', 'Last month'], ['m', 'This month'], ['q', 'This quarter'], ['nm', 'Next month'], ['nq', 'Next quarter'], ['c', 'Dates']].map(([k, l]) => `<button data-cm="${k}" class="${cr === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
@@ -978,10 +988,10 @@
 
     if (p.mode === 'fleet') return drawFleet(p, body);
     if (p.mode === 'timeline') return drawTimeline(p, body);
-    if (p.mode === 'completion') {
+    if (p.mode === 'completion' || p.mode === 'aci') {
       p.el.querySelectorAll('[data-cm]').forEach(b => b.onclick = () => { p.comp = b.dataset.cm; save(); renderPane(p); });
       p.el.querySelectorAll('.cfrom,.cto').forEach(i => i.onchange = () => { p.cfrom = p.el.querySelector('.cfrom').value; p.cto = p.el.querySelector('.cto').value; save(); renderPane(p); });
-      return drawCompletion(p, body);
+      return p.mode === 'aci' ? drawAci(p, body) : drawCompletion(p, body);
     }
     if (p.mode === 'countries') {
       const cs = p.el.querySelector('.cview'); if (cs) cs.onchange = e => { p.cview = e.target.value; p.cship = ''; save(); renderPane(p); };
@@ -1271,6 +1281,51 @@
       left -= span;
     }
     return null;
+  }
+  const staffOf = id => { const m = /^[A-Za-z]+-[A-Za-z]+(\d{1,3})$/.exec(String(id || '').trim()); return m ? 'S' + parseInt(m[1], 10) : ''; };
+  function compRange(p) {
+    const today = dParse(sgtDate(Date.now())), t = new Date(today), y = t.getUTCFullYear(), m = t.getUTCMonth(), q = Math.floor(m / 3) * 3;
+    const R = { m:[Date.UTC(y, m, 1), Date.UTC(y, m + 1, 0), 'this month'], lm:[Date.UTC(y, m - 1, 1), Date.UTC(y, m, 0), 'last month'],
+                q:[Date.UTC(y, q, 1), Date.UTC(y, q + 3, 0), 'this quarter'], lq:[Date.UTC(y, q - 3, 1), Date.UTC(y, q, 0), 'last quarter'],
+                nm:[Date.UTC(y, m + 1, 1), Date.UTC(y, m + 2, 0), 'next month'], nq:[Date.UTC(y, q + 3, 1), Date.UTC(y, q + 6, 0), 'next quarter'] };
+    let [from, to, label] = R[p.comp || 'm'] || R.m;
+    if (p.comp === 'c') { from = dParse(p.cfrom || sgtDate(Date.now()).slice(0, 8) + '01'); to = dParse(p.cto || sgtDate(Date.now())); label = dShort(from) + ' – ' + dShort(to); }
+    return { today, from, to, label };
+  }
+  async function drawAci(p, body) {
+    body.innerHTML = '<div class="msg">Loading…</div>';
+    const rows = await loadPositions();
+    if (!p.el.contains(body)) return;
+    const { today, from, to, label } = compRange(p);
+    const cutoff = Math.min(to, today) + DAY;
+    const CH = ['China', 'Hong Kong', 'Macao'], AS = ['Brunei', 'Cambodia', 'Indonesia', 'Laos', 'Malaysia', 'Myanmar', 'Philippines', 'Singapore', 'Thailand', 'Timor-Leste', 'Vietnam'];
+    const order = (a, b) => catCompare(catOf(a), catOf(b), defaultCat) || a.id.localeCompare(b.id, undefined, { numeric:true });
+    const items = vessels.filter(v => !p.ccat || catOf(v) === p.ccat).sort(order).map(v => {
+      const d = completionDate(v._stints || []);
+      if (!d || d < from || d > to) return null;
+      const cs = [...new Set(visitsOf(v, shipFixes(rows, v.id)).filter(c => c.start < cutoff).map(c => c.country))];
+      const a = { a:cs.filter(c => AS.includes(c)), c:cs.filter(c => CH.includes(c)), i:cs.includes('India') };
+      a.any = a.a.length > 0 || a.c.length > 0 || a.i;
+      const st = d <= today ? 'Completed' : (v._p && v._p.status === 'onboard' ? 'Expected' : 'Expected after resume');
+      return { v, d, a, st, soFar:d > today };
+    }).filter(Boolean);
+    const n = items.length, done = items.filter(x => x.st === 'Completed').length;
+    const k = f => items.filter(f).length, pc = c => `<b>${c}</b> of ${n}${n ? ` <span class="sub">(${Math.round(100 * c / n)}%)</span>` : ''}`;
+    const dot = v => `<i class="dot" style="background:${v.category ? catColor(v.category) : css('--none')}"></i> `;
+    const sf = '<span class="sub"> so far</span>';
+    const cats = catOrder.concat([...new Set(items.map(x => catOf(x.v)))].filter(c => !catOrder.includes(c)));
+    const tb = cats.map(c => { const its = items.filter(x => catOf(x.v) === c); if (!its.length) return '';
+      return `<tr class="cgrp"><td colspan="9">${dot(its[0].v)}${esc(c)} <span class="sub">· ${its.length}</span></td></tr>` + its.map(x =>
+        `<tr data-id="${esc(x.v.id)}"><td>${dot(x.v)}<b>${esc(x.v.id)}</b></td><td>${esc(staffOf(x.v.id) || '—')}</td><td>${esc(x.v.vessel_name)}</td>`
+        + `<td>${esc(x.a.a.join(', ') || '—')}</td><td>${esc(x.a.c.join(', ') || '—')}</td><td>${x.a.i ? 'Yes' : '—'}</td>`
+        + `<td>${x.a.any ? '<b>Yes</b>' : 'No' + (x.soFar ? sf : '')}</td><td>${esc(x.st)}</td><td>${esc(dShort(x.d))} ${new Date(x.d).getUTCFullYear()}</td></tr>`).join(''); }).join('');
+    body.innerHTML = `<div class="cmpwrap">
+      <h3>Completing ${esc(label)} · ${n} <span class="sub">(${done} completed, ${n - done} expected)</span></h3>
+      <div class="sub" style="margin-bottom:6px">ASEAN ${pc(k(x => x.a.a.length))} · China/HK/Macao ${pc(k(x => x.a.c.length))} · India ${pc(k(x => x.a.i))} · Any ACI ${pc(k(x => x.a.any))}</div>
+      ${n ? `<table><thead><tr><th>Code</th><th>IF</th><th>Vessel</th><th>ASEAN</th><th>China / HK / Macao</th><th>India</th><th>Any ACI</th><th>Status</th><th>Date</th></tr></thead><tbody>${tb}</tbody></table>`
+          : '<div class="sub">No codes complete in this range.</div>'}
+      <p class="sub">ACI = port calls over the whole time on board up to the end of the range (or today; "so far" for codes still on board). ASEAN includes Singapore; China includes Hong Kong and Macao; Taiwan not counted.</p></div>`;
+    body.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => select(tr.dataset.id));
   }
   function drawCompletion(p, body) {
     const today = dParse(sgtDate(Date.now())), t = new Date(today), y = t.getUTCFullYear(), m = t.getUTCMonth(), q = Math.floor(m / 3) * 3;

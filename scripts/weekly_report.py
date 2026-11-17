@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import countries as ctry
 import idtools
+import acicomp
 import completion
 from insights import (
     active_in, category_colours, countries_visited, destination_text, port_calls, timeline_svg,
@@ -218,6 +219,9 @@ def build(kind="weekly", ref=None, month=None):
         ctx["completion"] = completion.gather(roster, p_start, today + timedelta(days=30), today)
     ctx["sheets"].append(completion.sheet(ctx["completion"]))
     ctx["staff"] = staff
+    if kind == "weekly" and not staff:
+        ctx["acicomp"] = acicomp.gather(roster, all_fixes, p_start, today + timedelta(days=30), today)
+        ctx["sheets"].append(acicomp.sheet(ctx["acicomp"]))
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
     fname = f"{kind}-{tag}{'-' + staff if staff else ''}.html"
@@ -614,6 +618,8 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
     if staff:
         lower_sections, countries_cum = [], ""
     elif sif:
+        if ctx.get("acicomp"):
+            countries_cum += acicomp.section(ctx["acicomp"], f"this {w} and the next 30 days", colours)
         countries_cum += if_summary(rows, ctx, as_of)
     if kind == "quarterly":
         groups_html = ""
