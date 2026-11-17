@@ -156,10 +156,4 @@ jobs:
           if [ -n "$kind" ]; then
             echo "::notice::Starting the $kind report."
             gh workflow run "$kind-report.yml" -f source=auto
-            exit 0
-          fi
-          id=$(python scripts/countries_report.py --due | awk '{print $1}')
-          if [ -n "$id" ]; then
-            echo "::notice::Starting an end-of-period summary."
-            gh workflow run countries-report.yml -f period_end="$id"
           fi

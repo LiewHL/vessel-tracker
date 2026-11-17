@@ -13,26 +13,11 @@ def due(kind, now=None):
     today = now.date()
     index = [r for r in read_json(REPORT_INDEX, []) if not r.get("by")]
     made = {(r.get("kind", "weekly"), r.get("date", "")) for r in index}
-    final = {(r.get("kind"), r.get("date", "")) for r in index
-             if r.get("generated", "9999") >= now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-             .astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     if kind == "weekly":
         monday = today - timedelta(days=today.weekday())
         if today.weekday() > 2 or now < datetime.combine(monday, time(8, 0), SGT):
             return False
         return not any(k == "weekly" and d >= monday.isoformat() for k, d in made)
-    if kind == "monthly":
-        if today.day > 7 or now < datetime.combine(today.replace(day=1), time(7, 0), SGT):
-            return False
-        prev = today.replace(day=1) - timedelta(days=1)
-        return ("monthly", f"{prev:%Y-%m}") not in final
-    if kind == "quarterly":
-        if today.month not in (1, 4, 7, 10) or today.day > 14 \
-                or now < datetime.combine(today.replace(day=1), time(6, 0), SGT):
-            return False
-        q = (today.month - 1) // 3
-        y, q = (today.year, q) if q else (today.year - 1, 4)
-        return ("quarterly", f"{y}-Q{q}") not in final
     return False
 
 
@@ -51,7 +36,7 @@ def requests_today(slot, now=None):
 
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "list":
-        print(" ".join(k for k in ("quarterly", "monthly", "weekly") if due(k)))
+        print("weekly" if due("weekly") else "")
         return 0
     if len(sys.argv) >= 3 and sys.argv[1] == "request":
         return 0 if requests_today(sys.argv[2]) < REQUESTS_PER_DAY else 10

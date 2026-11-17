@@ -55,9 +55,6 @@
   .sendrow select, .sendrow input { font:inherit; font-size:13px; padding:5px 8px; border:1px solid var(--line); border-radius:7px;
                                     background:var(--card); color:var(--ink); min-width:0; }
   .sendrow input { flex:1 1 140px; }
-  #sendDates { display:inline-flex; gap:6px; align-items:center; }
-  #sendDates[hidden] { display:none; }
-  #sendDates input { flex:0 0 auto; width:auto; }
   #sendMsg.ok { color:var(--fresh); } #sendMsg.bad { color:var(--old); }
   .banner { background:color-mix(in srgb, var(--stale) 14%, var(--card)); border-bottom:1px solid color-mix(in srgb, var(--stale) 40%, transparent);
             padding:7px 14px; display:none; font-size:12px; }
@@ -260,11 +257,8 @@
   <button class="hbtn" id="lockBtn" hidden title="Forget the passcode on this device and lock the dashboard" aria-label="Lock"><svg class="lk-ic" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="lk-tx"> Lock</span></button>
   <button class="hbtn" id="sendBtn" hidden aria-expanded="false" aria-controls="sendPop" title="Email a report to the SP address linked to your Send code">Send</button>
   <div class="popover" id="sendPop">
-    <h2>Send a report by email</h2>
-    <div class="sendrow"><select id="sendKind" aria-label="Report">
-        <option value="weekly">Weekly (last 7 days)</option><option value="monthly">Monthly (last full month)</option>
-        <option value="quarterly">Quarterly (last full quarter)</option><option value="countries">Countries (whole period)</option><option value="completion">Completion (dates below)</option></select>
-      <span id="sendDates" hidden><input type="date" id="sendFrom" aria-label="From"> – <input type="date" id="sendTo" aria-label="To"></span>
+    <h2>Send the weekly report (SIF) by email</h2>
+    <div class="sendrow">
       <input id="sendCode" type="password" autocomplete="off" placeholder="Your Send code" aria-label="Your Send code">
       <button class="hbtn" id="sendGo" type="button">Send</button></div>
     <div class="foot" id="sendMsg">The report goes to the SP email linked to your Send code (at most 5 a day). No copy is kept.</div>
@@ -723,7 +717,7 @@
   $('runPill').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRun(); } };
   function banner(html) { const b = $('banner'); b.style.display = 'block'; b.innerHTML += (b.innerHTML ? '<br>' : '') + html; }
   function renderReports(list) {
-    const names = { completion:'Completion', quarterly:'Quarterly', monthly:'Monthly', countries:'Countries', period_end:'End of period', weekly:'Weekly' };
+    const names = { completion:'Completion', quarterly:'Quarterly', monthly:'Monthly', countries:'Countries', period_end:'End of period', weekly:'Weekly (SIF)' };
     const since = Date.now() - 30 * 864e5;
     const sent = list.filter(r => r.sent && Date.parse(r.sent) >= since).sort((a, b) => Date.parse(b.sent) - Date.parse(a.sent));
     $('reports').innerHTML = sent.length
@@ -743,19 +737,13 @@
     btn.onclick = e => { e.stopPropagation(); const o = pop.classList.toggle('open'); btn.setAttribute('aria-expanded', o); if (o) $('sendCode').focus(); };
     document.addEventListener('click', e => { if (!pop.contains(e.target) && e.target !== btn) { pop.classList.remove('open'); btn.setAttribute('aria-expanded', false); } });
     $('sendCode').onkeydown = e => { if (e.key === 'Enter') go.click(); };
-    const sd = () => { const on = $('sendKind').value === 'completion'; $('sendDates').hidden = !on;
-      if (on && !$('sendFrom').value) { const t = sgtDate(Date.now()), d = new Date(dParse(t)); $('sendFrom').value = t.slice(0, 8) + '01';
-        $('sendTo').value = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10); } };
-    $('sendKind').onchange = sd; sd();
     const H = { Accept:'application/vnd.github+json', Authorization:'Bearer ' + cfg.key, 'X-GitHub-Api-Version':'2022-11-28' };
     const base = 'https://api.github.com/repos/' + cfg.repo + '/actions/workflows/send.yml';
     const wait = ms => new Promise(r => setTimeout(r, ms));
     go.onclick = async () => {
-      const kind = $('sendKind').value, code = $('sendCode').value.trim(), name = $('sendKind').selectedOptions[0].textContent.split(' (')[0];
+      const kind = 'weekly', code = $('sendCode').value.trim(), name = 'weekly (SIF)';
       if (!code) { say('Enter your Send code.', 'bad'); return; }
       const inputs = { report:kind, code };
-      if (kind === 'completion') { inputs.from = $('sendFrom').value; inputs.to = $('sendTo').value;
-        if (!inputs.from || !inputs.to || inputs.to < inputs.from) { say('Pick a From date on or before the To date.', 'bad'); return; } }
       go.disabled = true; say('Sending the request…');
       const t0 = Date.now();
       try {

@@ -105,7 +105,7 @@ jobs:
           SITE="https://${OWNER,,}.github.io/${REPO}"
           FILE="${{ steps.build.outputs.file }}"
           set +e
-          python scripts/send_email.py reports/latest-summary.md "reports/$FILE" "Weekly vessel report: ${{ steps.build.outputs.period }}" "$SITE/" ""
+          python scripts/send_email.py reports/latest-summary.md "reports/$FILE" "Weekly report (SIF): ${{ steps.build.outputs.period }}" "$SITE/" ""
           rc=$?
           if [ $rc -eq 0 ]; then echo "sent=yes" >> "$GITHUB_OUTPUT"; fi
           if [ $rc -eq 3 ]; then echo "::warning::No email sent (secrets not set, or no allowed recipients). Nothing was kept."; exit 0; fi
@@ -132,7 +132,7 @@ jobs:
             sleep 5
           done
 
-      - name: Email each staff member their own codes
+      - name: Email each IF their own codes
         if: steps.mail.outputs.sent == 'yes' && github.event.inputs.send_to == '' && github.event.inputs.staff != 'no'
         continue-on-error: true
         env:
@@ -151,7 +151,7 @@ jobs:
             FILE=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['file'])" "$RUNNER_TEMP/s-$S.json")
             PERIOD=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['period'])" "$RUNNER_TEMP/s-$S.json")
             MD=$(ls reports/latest-*summary-$S.md | head -1)
-            if python scripts/send_email.py "$MD" "reports/$FILE" "Weekly vessel report: $PERIOD" "$SITE/" "" --to "$S"; then n=$((n+1)); fi
+            if python scripts/send_email.py "$MD" "reports/$FILE" "Weekly report (IF $S): $PERIOD" "$SITE/" "" --to "$S"; then n=$((n+1)); fi
             rm -f "reports/$FILE" "$MD"
           done
           echo "Staff copies sent: $n"

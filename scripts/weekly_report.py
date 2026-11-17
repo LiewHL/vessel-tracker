@@ -19,7 +19,7 @@ from insights import (
 from common import (
     DATA_DIR, LATEST, REPORT_INDEX, REPORTS_DIR, REQUIRED_DAYS, completion_date, period_info, freshness, haversine_nm, load_roster,
     now_utc, parse_iso, place_label, places_visited, read_json, read_positions, read_positions_all, gfw_credit,
-    write_json,
+    write_json, staff_of,
 )
 
 SGT = timezone(timedelta(hours=8))
@@ -214,7 +214,10 @@ def build(kind="weekly", ref=None, month=None):
     ctx["sheets"] = [s for s in sheets if s[0] != "Ship summary"]
     if kind in ("monthly", "quarterly"):
         ctx["completion"] = completion.gather(roster, p_start, p_end, today)
-        ctx["sheets"].append(completion.sheet(ctx["completion"]))
+    else:
+        ctx["completion"] = completion.gather(roster, p_start, today + timedelta(days=30), today)
+    ctx["sheets"].append(completion.sheet(ctx["completion"]))
+    ctx["staff"] = staff
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
     fname = f"{kind}-{tag}{'-' + staff if staff else ''}.html"
@@ -240,7 +243,9 @@ def build(kind="weekly", ref=None, month=None):
 
     title = kind.capitalize()
     w = WORD[kind]
-    lines = [f"{title} vessel tracking summary for {period}." + (" This copy covers only your codes." if staff else ""), "",
+    who = (f"IF ({staff})" if staff else "SIF") if kind == "weekly" else title
+    lines = [f"Weekly report · {who} · {period}." + (" This copy covers only your codes." if staff else "") if kind == "weekly"
+             else f"{title} vessel tracking summary for {period}.", "",
              f"- Ships tracked: {len(roster)}"]
     if kind != "weekly":
         lines += [f"- Ships heard at least once this {w}: {heard_ships}",
@@ -255,11 +260,12 @@ def build(kind="weekly", ref=None, month=None):
     ]
     now_ships = [{"calls": r["visits"]} for r in rows if r["active"]]
     c_now, c_all = ctry.aci_counts(now_ships), ctry.aci_counts([{"calls": r["visits_all"]} for r in rows])
-    if kind in ("monthly", "quarterly"):
-        g = completion.gather(roster, p_start, p_end, today)
-        lines += [""] + completion.summary_lines(g, period_label(kind, period))
-    lines += ["", f"ASEAN (incl. Singapore) / China / India — IDs that called there (this {w}; to date):"]
-    lines += [f"- {ctry.ACI_LABEL[k]}: {c_now[k]} of {len(now_ships)}; {c_all[k]} of {len(rows)}" for k in ctry.ACI_KEYS]
+    g = ctx["completion"]
+    lines += ["", f"Completion: {len(g['completed'])} completed this week; {len(g['due'])} expected in the next 30 days; "
+                  f"{len(g['expected'])} on board; {len(g['paused'])} paused."]
+    if not staff:
+        lines += ["", f"ASEAN (incl. Singapore) / China / India — IDs that called there (this {w}; to date):"]
+        lines += [f"- {ctry.ACI_LABEL[k]}: {c_now[k]} of {len(now_ships)}; {c_all[k]} of {len(rows)}" for k in ctry.ACI_KEYS]
     if follow_up:
         lines += ["", "Ships to follow up (no recent position): "
                   + ", ".join(f"{v['id']} ({v['vessel_name']})" for v in follow_up)]
@@ -414,11 +420,41 @@ def countries_to_date(rows, colours, open_cat, as_of):
             + '<div style="margin-top:12px">' + ctry.ranking_html(ships) + '</div></div></div></section>')
 
 
+def if_summary(rows, ctx, as_of):
+    """What each IF received this week: their codes, status, alerts and follow-ups (same data as their own email)."""
+    e = html.escape
+    by = {}
+    for r in rows:
+        by.setdefault(staff_of(r["v"]["id"]) or "No IF", []).append(r)
+    key = lambda k: (k == "No IF", int(k[1:]) if k[1:].isdigit() else 0)
+    parts = []
+    for st in sorted(by, key=key):
+        rs = sorted(by[st], key=lambda r: r["v"]["id"])
+        ids = {r["v"]["id"] for r in rs}
+        al = [a for a in ctx["alerts"] if a.get("ship") in ids]
+        fu = [r for r in rs if r["state"] in ("old", "none") and r["prog"] != "Completed"]
+        codes = "".join(f'<tr><td><span class="dot {r["state"]}"></span><b>{e(r["v"]["id"])}</b></td><td>{e(r["v"]["vessel_name"])}</td>'
+                        f'<td>{e(LABEL[r["state"]])}<div class="sub">{e(age_text(r["seen"], as_of) if r["seen"] else "no position yet")}</div></td>'
+                        f'<td>{e(r["prog"])}</td></tr>' for r in rs)
+        alerts = "".join(f'<li><span class=sub>{e(fmt_sgt(parse_iso(a["t"]), False))}</span> · <b>{e(a["kind"])}</b>: {e(a["text"])}</li>' for a in al)
+        sub = f'{len(rs)} code{"s" if len(rs) != 1 else ""} · {len(al)} alert{"s" if len(al) != 1 else ""} · {len(fu)} to follow up'
+        parts.append(f'<details class="grp"><summary><b>{e(st)}</b> <span class="sub">· {sub}</span></summary>'
+                     f'<div class="tablewrap" style="padding:0 8px 8px"><table class="small"><thead><tr><th>Code</th><th>Vessel</th>'
+                     f'<th>Status</th><th>Period</th></tr></thead><tbody>{codes}</tbody></table>'
+                     + (f'<p class="sub" style="margin:8px 0 2px">Alerts this week</p><ul class="alerts">{alerts}</ul>' if al else '')
+                     + (f'<p class="sub" style="margin:8px 0 2px">Follow up: {e(", ".join(r["v"]["id"] for r in fu))}</p>' if fu else '')
+                     + '</div></details>')
+    return ('<section><h2>Sent to each IF this week</h2><p class="sub" style="margin-top:-6px">Each IF received a report '
+            'with only their own codes: status, map, alerts and completion. Summary below.</p>' + "".join(parts) + '</section>')
+
+
 def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
                 total_fixes, heard_ships, ctx):
     e = html.escape
     monthly = kind != "weekly"
     w = WORD[kind]
+    staff = ctx.get("staff", "")
+    sif = kind == "weekly" and not staff
     last_head = {"weekly": "Last position", "monthly": "Position at month end",
                  "quarterly": "Position at quarter end"}[kind]
     colours = category_colours(ctx["roster"])
@@ -455,7 +491,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
         cat = (v.get("category") or "").strip() or "No category"
         aci = ctry.aci(r["visits_all"])
         export_rows.append({
-            "Code": v["id"], "Category": cat, "Vessel": v["vessel_name"], "Company": v.get("company", ""),
+            "Code": v["id"], "IF": staff_of(v["id"]) or "", "Category": cat, "Vessel": v["vessel_name"], "Company": v.get("company", ""),
             "IMO": v.get("imo", ""), "Period": r["prog"], "Status": LABEL[r["state"]],
             "Last position (SGT)": fmt_sgt(seen) if seen else "", "Position": pos if has_pos else "", "Place": place,
             f"Days heard this {w}": r["days"], f"Port calls this {w}": len(r["calls"]),
@@ -473,6 +509,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
           <span class="sub">· {e(short_seen)}{(' · ' + e(place)) if place else ''}</span>
           <span class="sp"></span>{map_btn}</summary>
         <dl class="kv">
+          <dt>IF</dt><dd>{e(staff_of(v['id']) or '—')}</dd>
           <dt>Company</dt><dd>{e(v.get('company', '')) or '—'} · {link}</dd>
           <dt>Period</dt><dd>{e(r['prog'])}</dd>
           <dt>{e(last_head)}</dt><dd><span class="dot {r['state']}"></span>{e(LABEL[r['state']])}<div class="sub">{seen_sub}</div></dd>
@@ -523,7 +560,7 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
                 (counts["none"], "No position yet", "none")]
         extra_head = "<th>Places this week (within 30 nm)</th>"
         last_head = "Position"
-        title = "Weekly Vessel Tracking Report"
+        title = f"Weekly Report · IF ({staff})" if staff else "Weekly Report · SIF"
         map_title = "Last known positions and tracks this week"
         status_note = ""
     thead = (f'<thead><tr><th>ID</th><th>Vessel</th><th>Period</th><th>Last position received</th>'
@@ -566,12 +603,18 @@ def render_html(kind, rows, counts, follow_up, period, as_of, generated, ndays,
                     f'dashed = expected time remaining. Colour = category. '
                     f'The shaded band is this {w}; the red line is today.</p></section>')
     side_sections = alerts_section(ctx, w) + coming_up(ctx, kind)
+    if kind == "weekly":
+        side_sections += completion.section(ctx["completion"], f"this {w} and the next 30 days", colours)
     lower_sections = []
     if kind != "quarterly":
         lower_sections.append(f'<section><h2>Port calls and stops this {w}</h2>{calls_table(rows, w, colours, open_cat)}</section>')
     lower_sections.append(f'<section><h2>Countries and ports visited this {w}</h2>{places_table(rows, w, colours, open_cat)}</section>')
-    countries_cum = ((completion.section(ctx["completion"], period_label(kind, period), colours) if ctx.get("completion") else "")
-                     + (countries_to_date(rows, colours, open_cat, as_of) if monthly else "") + aci_section(rows, colours, open_cat, w, as_of))
+    countries_cum = ((completion.section(ctx["completion"], period_label(kind, period), colours) if monthly and ctx.get("completion") else "")
+                     + (countries_to_date(rows, colours, open_cat, as_of) if monthly or sif else "") + aci_section(rows, colours, open_cat, w, as_of))
+    if staff:
+        lower_sections, countries_cum = [], ""
+    elif sif:
+        countries_cum += if_summary(rows, ctx, as_of)
     if kind == "quarterly":
         groups_html = ""
         side_sections += timeline + "".join(lower_sections)
