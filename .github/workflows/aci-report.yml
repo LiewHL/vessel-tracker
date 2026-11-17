@@ -110,12 +110,5 @@ jobs:
           else
             python scripts/sent_log.py "${{ steps.build.outputs.kind }}" "${{ steps.build.outputs.date }}"
           fi
-          git config user.name "vessel-logger"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python scripts/vault.py seal
-          git add -A vault
-          git diff --cached --quiet || git commit -q -m "ACI and completion report sent"
-          for i in 1 2 3; do
-            git pull --rebase --quiet && git push --quiet && break
-            sleep 5
-          done
+          REQ=""; [ -n "$SEND_TO" ] && REQ="--request $SEND_TO"
+          bash scripts/save_log.sh "ACI and completion report sent" ${{ steps.build.outputs.kind }} "${{ steps.build.outputs.date }}" $REQ

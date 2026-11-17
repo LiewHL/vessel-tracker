@@ -125,15 +125,8 @@ jobs:
           else
             python scripts/sent_log.py weekly "${{ steps.build.outputs.date }}"
           fi
-          git config user.name "vessel-logger"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python scripts/vault.py seal
-          git add -A vault
-          git diff --cached --quiet || git commit -q -m "Weekly report sent ${{ steps.build.outputs.period }}"
-          for i in 1 2 3; do
-            git pull --rebase --quiet && git push --quiet && break
-            sleep 5
-          done
+          REQ=""; [ -n "$SEND_TO" ] && REQ="--request $SEND_TO"
+          bash scripts/save_log.sh "Weekly report sent ${{ steps.build.outputs.period }}" weekly "${{ steps.build.outputs.date }}" $REQ
 
       - name: Email each IF their own codes
         if: steps.mail.outputs.sent == 'yes' && github.event.inputs.send_to == '' && github.event.inputs.staff != 'no'
