@@ -1314,18 +1314,21 @@
     const dot = v => `<i class="dot" style="background:${v.category ? catColor(v.category) : css('--none')}"></i> `;
     const sf = '<span class="sub"> so far</span>';
     const cats = catOrder.concat([...new Set(items.map(x => catOf(x.v)))].filter(c => !catOrder.includes(c)));
+    const head = '<thead><tr><th>Code</th><th>IF</th><th>Vessel</th><th>ASEAN</th><th>China / HK / Macao</th><th>India</th><th>Any ACI</th><th>Status</th><th>Date</th></tr></thead>';
+    p.aciOpen = p.aciOpen || {};
     const tb = cats.map(c => { const its = items.filter(x => catOf(x.v) === c); if (!its.length) return '';
-      return `<tr class="cgrp"><td colspan="9">${dot(its[0].v)}${esc(c)} <span class="sub">· ${its.length}</span></td></tr>` + its.map(x =>
+      const op = c in p.aciOpen ? p.aciOpen[c] : c === defaultCat;
+      return `<details class="cmpgrp acigrp" data-cat="${esc(c)}"${op ? ' open' : ''}><summary><h3>${dot(its[0].v)}${esc(c)} <span class="sub">· ${its.length} code${its.length === 1 ? '' : 's'} · any ACI ${its.filter(x => x.a.any).length} of ${its.length}</span></h3></summary><table>${head}<tbody>` + its.map(x =>
         `<tr data-id="${esc(x.v.id)}"><td>${dot(x.v)}<b>${esc(x.v.id)}</b></td><td>${esc(staffOf(x.v.id) || '—')}</td><td>${esc(x.v.vessel_name)}</td>`
         + `<td>${esc(x.a.a.join(', ') || '—')}</td><td>${esc(x.a.c.join(', ') || '—')}</td><td>${x.a.i ? 'Yes' : '—'}</td>`
-        + `<td>${x.a.any ? '<b>Yes</b>' : 'No' + (x.soFar ? sf : '')}</td><td>${esc(x.st)}</td><td>${esc(dShort(x.d))} ${new Date(x.d).getUTCFullYear()}</td></tr>`).join(''); }).join('');
+        + `<td>${x.a.any ? '<b>Yes</b>' : 'No' + (x.soFar ? sf : '')}</td><td>${esc(x.st)}</td><td>${esc(dShort(x.d))} ${new Date(x.d).getUTCFullYear()}</td></tr>`).join('') + '</tbody></table></details>'; }).join('');
     body.innerHTML = `<div class="cmpwrap">
       <h3>Completing ${esc(label)} · ${n} <span class="sub">(${done} completed, ${n - done} expected)</span></h3>
       <div class="sub" style="margin-bottom:6px">ASEAN ${pc(k(x => x.a.a.length))} · China/HK/Macao ${pc(k(x => x.a.c.length))} · India ${pc(k(x => x.a.i))} · Any ACI ${pc(k(x => x.a.any))}</div>
-      ${n ? `<table><thead><tr><th>Code</th><th>IF</th><th>Vessel</th><th>ASEAN</th><th>China / HK / Macao</th><th>India</th><th>Any ACI</th><th>Status</th><th>Date</th></tr></thead><tbody>${tb}</tbody></table>`
-          : '<div class="sub">No codes complete in this range.</div>'}
+      ${n ? tb : '<div class="sub">No codes complete in this range.</div>'}
       <p class="sub">ACI = port calls over the whole time on board up to the end of the range (or today; "so far" for codes still on board). ASEAN includes Singapore; China includes Hong Kong and Macao; Taiwan not counted.</p></div>`;
     body.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => select(tr.dataset.id));
+    body.querySelectorAll('details.acigrp').forEach(d => d.ontoggle = () => { p.aciOpen[d.dataset.cat] = d.open; });
   }
   function drawCompletion(p, body) {
     const today = dParse(sgtDate(Date.now())), t = new Date(today), y = t.getUTCFullYear(), m = t.getUTCMonth(), q = Math.floor(m / 3) * 3;

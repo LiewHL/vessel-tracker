@@ -1,6 +1,7 @@
 """ACI & completion: codes that completed, or are expected to complete, in a date range (past or future), with the
 ASEAN / China / India countries each visited over their whole time on board (up to the range end, or today)."""
 import html
+import re
 from datetime import datetime, time, timedelta, timezone
 
 import countries as ctry
@@ -12,6 +13,26 @@ HEADER = ["Code", "IF", "Vessel", "Category", "ASEAN countries", "China / HK / M
 
 def _cat(v):
     return (v.get("category") or "").strip() or "No category"
+
+
+def _num(c):
+    m = re.search(r"\d+", c or "")
+    return int(m.group()) if m else -1
+
+
+def _is_ts(c):
+    return bool(re.search(r"\bTS\b", c or "", re.I))
+
+
+def open_category(cats):
+    """The latest (highest-numbered, non-test) category: shown open, the others folded."""
+    pool = [c for c in cats if c and c != "No category" and not _is_ts(c)] or [c for c in cats if c]
+    return max(pool, key=_num) if pool else ""
+
+
+def cat_order(cats):
+    oc = open_category(cats)
+    return sorted(cats, key=lambda c: (c != oc, c == "No category", _is_ts(c), -_num(c), c))
 
 
 def gather(roster, fixes_by_id, start, end, today):
@@ -47,28 +68,28 @@ def section(g, label, colours=None, heading="ACI & completion"):
     colours = colours or {}
     n, done, exp, c = counts(g)
     pct = lambda k: f'<b>{c[k]}</b> of {n}' + (f' <span class="sub">({round(100 * c[k] / n)}%)</span>' if n else "")
-    order = []
-    for x in g["items"]:
-        if _cat(x["v"]) not in order:
-            order.append(_cat(x["v"]))
-    order.sort(key=lambda k: (k == "No category", "TS" in k.split(), k))
-    body = ""
-    for cat in order:
+    cats = cat_order(list(dict.fromkeys(_cat(x["v"]) for x in g["items"])))
+    oc = open_category(cats)
+    groups = ""
+    for cat in cats:
         its = [x for x in g["items"] if _cat(x["v"]) == cat]
         dot = f'<span class="dot" style="background:{colours.get(cat, "#8a96a0")}"></span>'
-        body += (f'<tr><td colspan="9" style="font-weight:700;padding-top:8px;border-bottom:1px solid #d5dde5">{dot}{e(cat)} '
-                 f'<span class="sub">· {len(its)}</span></td></tr>')
+        anyn = sum(1 for x in its if x["aci"]["Any"])
+        rows = ""
         for x in its:
             a, v = x["aci"], x["v"]
             sf = ' <span class="sub">so far</span>' if x["so_far"] else ""
-            body += (f'<tr><td>{dot}<b>{e(v["id"])}</b></td><td>{e(staff_of(v["id"]) or "—")}</td><td>{e(v["vessel_name"])}</td>'
+            rows += (f'<tr><td>{dot}<b>{e(v["id"])}</b></td><td>{e(staff_of(v["id"]) or "—")}</td><td>{e(v["vessel_name"])}</td>'
                      f'<td>{e(", ".join(a["ASEAN"]) or "—")}{sf if a["ASEAN"] else ""}</td>'
                      f'<td>{e(", ".join(a["China"]) or "—")}</td><td>{"Yes" if a["India"] else "—"}</td>'
                      f'<td>{"<b>Yes</b>" if a["Any"] else "No" + sf}</td><td>{e(x["status"])}</td>'
                      f'<td>{x["date"]:%d %b %Y}</td></tr>')
-    table = (f'<div class="tablewrap"><table class="small" style="white-space:nowrap"><thead><tr><th>Code</th><th>IF</th>'
-             f'<th>Vessel</th><th>ASEAN</th><th>China / HK / Macao</th><th>India</th><th>Any ACI</th><th>Status</th>'
-             f'<th>Date</th></tr></thead><tbody>{body}</tbody></table></div>') if n else '<p class="sub">No codes complete in this range.</p>'
+        groups += (f'<details class="grp"{" open" if cat == oc else ""}><summary>{dot}<b>{e(cat)}</b> <span class="sub">· '
+                   f'{len(its)} code{"s" if len(its) != 1 else ""} · any ACI {anyn} of {len(its)}</span></summary>'
+                   f'<div class="tablewrap" style="padding:0 0 8px 18px"><table class="small" style="white-space:nowrap">'
+                   f'<thead><tr><th>Code</th><th>IF</th><th>Vessel</th><th>ASEAN</th><th>China / HK / Macao</th><th>India</th>'
+                   f'<th>Any ACI</th><th>Status</th><th>Date</th></tr></thead><tbody>{rows}</tbody></table></div></details>')
+    table = groups if n else '<p class="sub">No codes complete in this range.</p>'
     return (f'<section><h2>{e(heading)}</h2>'
             f'<p><b>{n}</b> code{"s" if n != 1 else ""} completing {e(label)}: <b>{done}</b> completed, <b>{exp}</b> expected.</p>'
             f'<table class="small" style="width:auto;margin:0 0 10px"><tbody>'
