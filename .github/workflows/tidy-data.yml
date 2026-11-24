@@ -1,0 +1,46 @@
+name: Tidy data
+
+on:
+  workflow_dispatch:
+    inputs:
+      mapping:
+        description: "ID changes as OLD=NEW pairs, comma-separated (leave empty if none)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vessel-data
+  cancel-in-progress: false
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet "cryptography==50.0.2" "cffi==2.1.1" "pycparser==3.12"
+      - name: Unlock, tidy and lock
+        env:
+          REPORT_PASSCODE: ${{ secrets.REPORT_PASSCODE }}
+          MAPPING: ${{ github.event.inputs.mapping }}
+          VAULT_COMPACT: "1"
+          LIST_KEY: ${{ secrets.LIST_KEY }}
+          LIST_REPO: ${{ vars.LIST_REPO }}
+        run: |
+          python scripts/vault.py open
+          python scripts/get_list.py
+          python scripts/tidy_data.py "$MAPPING"
+          python scripts/vault.py seal
+          git config user.name "vessel-logger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data; [ -d vault ] && git add -A vault
+          git diff --cached --quiet || git commit -q -m "Tidy data"
+          git push --quiet
